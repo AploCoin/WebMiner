@@ -1,9 +1,9 @@
 const repo = "WebMiner";
 var assetPrefix = `/${repo}/`;
 var basePath = `/${repo}`;
-const createNextIntlPlugin = require('next-intl/plugin');
+//const createNextIntlPlugin = require('next-intl/plugin');
 
-const withNextIntl = createNextIntlPlugin();
+//const withNextIntl = createNextIntlPlugin();
 
 /** @type {import('next').NextConfig} */
 var nextConfig = {
@@ -40,6 +40,6 @@ if (isGithubActions) {
   }
 }
 
-module.exports = withNextIntl(nextConfig);
+//module.exports = withNextIntl(nextConfig);
 
-// module.exports = nextConfig
+module.exports = nextConfig
