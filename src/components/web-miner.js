@@ -184,7 +184,7 @@ const WebMiner = () => {
 		<div className="max-w-4xl mx-auto p-6 space-y-6">
 			<Card>
 				<CardHeader>
-					<CardTitle className="text-2xl font-bold">AploCoin Web Miner</CardTitle>
+					<CardTitle className="text-2xl font-bold">GAplo Web Miner</CardTitle>
 				</CardHeader>
 				<CardContent className="space-y-4">
 					<div className="space-y-2">
@@ -219,7 +219,7 @@ const WebMiner = () => {
 						</div>
 						<div>
 							<p className="font-medium">Balance</p>
-							<p className="text-gray-600">{minerStats.balance} APLO</p>
+							<p className="text-gray-600">{minerStats.balance} GAPLO</p>
 						</div>
 					</div>
 
