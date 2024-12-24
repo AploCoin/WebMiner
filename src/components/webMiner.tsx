@@ -519,16 +519,16 @@ const WebMiner: React.FC = () => {
       if (!walletAddress) {
         toast({
           variant: "destructive",
-          title: "Нет адреса кошелька",
-          description: "Пожалуйста, введите адрес кошелька",
+          title: "No Wallet Address",
+          description: "Please enter a wallet address",
         });
         return;
       }
       if (!privateKey) {
         toast({
           variant: "destructive",
-          title: "Нет приватного ключа",
-          description: "Пожалуйста, введите приватный ключ",
+          title: "No Private Key",
+          description: "Please enter a private key",
         });
         return;
       }
@@ -536,8 +536,8 @@ const WebMiner: React.FC = () => {
       if (!validatePrivateKey(privateKey)) {
         toast({
           variant: "destructive",
-          title: "Неверный приватный ключ",
-          description: "Приватный ключ должен содержать 64 hex символа с или без префикса 0x",
+          title: "Invalid Private Key",
+          description: "Private key must contain 64 hex characters with or without 0x prefix",
         });
         return;
       }
@@ -596,10 +596,10 @@ const WebMiner: React.FC = () => {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Приватный ключ</label>
+            <label className="text-sm font-medium">Private Key</label>
             <Input
               type="password"
-              placeholder="Введите ваш приватный ключ"
+              placeholder="Enter your private key"
               value={privateKey}
               onChange={(e) => {
                 const newKey = e.target.value;
@@ -614,9 +614,9 @@ const WebMiner: React.FC = () => {
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">Адрес кошелька</label>
+            <label className="text-sm font-medium">Wallet Address</label>
             <Input
-              placeholder="Адрес сгенерируется автоматически"
+              placeholder="Address will be generated automatically"
               value={walletAddress}
               disabled={true}
             />
@@ -624,15 +624,15 @@ const WebMiner: React.FC = () => {
 
           <div className="grid grid-cols-3 gap-4 mt-4 text-sm">
             <div>
-              <p className="font-medium">Текущая сложность</p>
+              <p className="font-medium">Current Difficulty</p>
               <p className="text-gray-600 truncate">{minerStats.difficulty}</p>
             </div>
             <div>
-              <p className="font-medium">Всего намайнено</p>
+              <p className="font-medium">Total Mined</p>
               <p className="text-gray-600">{minerStats.totalMined}</p>
             </div>
             <div>
-              <p className="font-medium">Баланс</p>
+              <p className="font-medium">Balance</p>
               <p className="text-gray-600">{formatBalance(minerStats.balance)}</p>
             </div>
           </div>
@@ -645,11 +645,11 @@ const WebMiner: React.FC = () => {
           >
             {isMining ? (
               <>
-                <StopCircle className="mr-2 h-4 w-4" /> Остановить майнинг
+                <StopCircle className="mr-2 h-4 w-4" /> Stop Mining
               </>
             ) : (
               <>
-                <PlayCircle className="mr-2 h-4 w-4" /> Начать майнинг
+                <PlayCircle className="mr-2 h-4 w-4" /> Start Mining
               </>
             )}
           </Button>
