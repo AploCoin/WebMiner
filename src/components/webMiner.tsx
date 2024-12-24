@@ -9,8 +9,6 @@ import Web3 from "web3";
 import type { Contract } from "web3-eth-contract";
 import { useToast } from "@/hooks/use-toast";
 import type { ContractAbi } from "web3";
-import { Label } from "@/components/ui/label"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 
 import {
   ColumnDef,
@@ -276,15 +274,39 @@ declare global {
 }
 
 const validatePrivateKey = (key: string): boolean => {
-  // Простая валидация: ключ должен начинаться с 0x и иметь длину 66 символов (64 hex символа + "0x")
-  // Стандартный приватный ключ Ethereum: 32 bytes = 64 hex chars + "0x"
-  return /^0x[0-9a-fA-F]{64}$/.test(key);
+  // Проверяем ключ с префиксом 0x (66 символов) или без него (64 символа)
+  return /^(0x)?[0-9a-fA-F]{64}$/.test(key);
+};
+
+const getAddressFromPrivateKey = (privateKey: string): string => {
+  try {
+    // Добавляем префикс 0x если его нет
+    const formattedKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+    // Создаем аккаунт из приватного ключа
+    const account = new Web3().eth.accounts.privateKeyToAccount(formattedKey);
+    return account.address;
+  } catch (error) {
+    return '';
+  }
+};
+
+const formatBalance = (balance: string): string => {
+  const num = parseFloat(balance);
+  if (isNaN(num)) return '0 GAPLO';
+  
+  const absNum = Math.abs(num);
+  if (absNum < 1000) return `${num.toFixed(2)} GAPLO`;
+  
+  const suffixes = ['', 'K', 'M', 'B', 'T'];
+  const suffixNum = Math.floor(Math.log10(absNum) / 3);
+  const shortValue = (num / Math.pow(1000, suffixNum));
+  
+  return `${shortValue.toFixed(2)}${suffixes[suffixNum]} GAPLO`;
 };
 
 const WebMiner: React.FC = () => {
   const { toast } = useToast();
 
-  const [mode, setMode] = useState<"metamask" | "manual">("manual"); // Режим: metamask или manual
   const [walletAddress, setWalletAddress] = useState<string>("");
   const [privateKey, setPrivateKey] = useState<string>("");
   const [isMining, setIsMining] = useState<boolean>(false);
@@ -299,8 +321,6 @@ const WebMiner: React.FC = () => {
     balance: "0",
   });
 
-  const [metamaskConnected, setMetamaskConnected] = useState<boolean>(false);
-
   // Refs
   const miningRef = useRef<boolean>(false);
   const web3Ref = useRef<Web3 | null>(null);
@@ -314,38 +334,6 @@ const WebMiner: React.FC = () => {
       CONTRACT_ADDRESS
     );
   }, []);
-
-  const connectMetamask = async () => {
-    if (!window.ethereum) {
-      toast({
-        variant: "destructive",
-        title: "Metamask not found",
-        description: "Please install Metamask extension.",
-      });
-      return;
-    }
-    try {
-      const accounts = await window.ethereum.request({
-        method: "eth_requestAccounts",
-      });
-      if (accounts && accounts.length > 0) {
-        setWalletAddress(accounts[0]);
-        setMetamaskConnected(true);
-        toast({
-          title: "Metamask connected",
-          description: `Connected account: ${accounts[0]}`,
-        });
-      }
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Failed to connect Metamask";
-      toast({
-        variant: "destructive",
-        title: "Connection Error",
-        description: message,
-      });
-    }
-  };
 
   const getMinerParams = async (address: string): Promise<MinerParams> => {
     if (!contractRef.current) throw new Error("Contract not initialized");
@@ -440,24 +428,20 @@ const WebMiner: React.FC = () => {
       from: walletAddress,
       to: CONTRACT_ADDRESS,
       data: transaction.encodeABI(),
-      gas: Number(gasEstimate) + 1000, // gasEstimate is number
+      gas: Number(gasEstimate) + 1000,
       gasPrice: gasPrice,
       nonce: latestNonce,
     };
 
-    // Если Metamask подключен - отправляем через Metamask
-    if (mode === "metamask" && metamaskConnected && window.ethereum) {
-      return await web3.eth.sendTransaction(txData);
-    } else {
-      // Иначе используем приватный ключ
-      const signedTx = await web3.eth.accounts.signTransaction(
-        txData,
-        privateKey
-      );
-      if (!signedTx.rawTransaction)
-        throw new Error("Failed to sign transaction");
-      return await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
-    }
+    // Добавляем 0x к приватному ключу, если его нет
+    const formattedPrivateKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+    const signedTx = await web3.eth.accounts.signTransaction(
+      txData,
+      formattedPrivateKey
+    );
+    if (!signedTx.rawTransaction)
+      throw new Error("Failed to sign transaction");
+    return await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
   };
 
   const updateMinerStats = async () => {
@@ -532,44 +516,30 @@ const WebMiner: React.FC = () => {
 
   const toggleMining = async () => {
     if (!isMining) {
-      // Проверяем условия в зависимости от режима
-      if (mode === "metamask") {
-        if (!walletAddress || !metamaskConnected) {
-          toast({
-            variant: "destructive",
-            title: "No wallet",
-            description: "Please connect Metamask",
-          });
-          return;
-        }
-      } else {
-        // mode === "manual"
-        if (!walletAddress) {
-          toast({
-            variant: "destructive",
-            title: "No wallet",
-            description: "Please enter a wallet address",
-          });
-          return;
-        }
-        if (!privateKey) {
-          toast({
-            variant: "destructive",
-            title: "No signing method",
-            description: "Please enter a private key",
-          });
-          return;
-        }
-        // Валидируем приватный ключ
-        if (!validatePrivateKey(privateKey)) {
-          toast({
-            variant: "destructive",
-            title: "Invalid private key",
-            description:
-              "Private key must start with 0x and contain 64 hex characters.",
-          });
-          return;
-        }
+      if (!walletAddress) {
+        toast({
+          variant: "destructive",
+          title: "Нет адреса кошелька",
+          description: "Пожалуйста, введите адрес кошелька",
+        });
+        return;
+      }
+      if (!privateKey) {
+        toast({
+          variant: "destructive",
+          title: "Нет приватного ключа",
+          description: "Пожалуйста, введите приватный ключ",
+        });
+        return;
+      }
+      // Валидируем приватный ключ
+      if (!validatePrivateKey(privateKey)) {
+        toast({
+          variant: "destructive",
+          title: "Неверный приватный ключ",
+          description: "Приватный ключ должен содержать 64 hex символа с или без префикса 0x",
+        });
+        return;
       }
 
       setIsMining(true);
@@ -625,68 +595,45 @@ const WebMiner: React.FC = () => {
           <CardTitle className="text-2xl font-bold flex flex-row justify-between"><span>GAplo Web Miner</span> <ThemeSwitcher/></CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Выбор режима */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">Select Mode</label>
-            <RadioGroup defaultValue={mode} onValueChange={(value) => setMode(value as "metamask" | "manual")} className="flex flex-row gap-3">
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="metamask" id="metamask" disabled={isMining} />
-                <Label htmlFor="metamask">Metamask</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="manual" id="manual" disabled={isMining} />
-                <Label htmlFor="manual">Manual</Label>
-              </div>
-            </RadioGroup>
+            <label className="text-sm font-medium">Приватный ключ</label>
+            <Input
+              type="password"
+              placeholder="Введите ваш приватный ключ"
+              value={privateKey}
+              onChange={(e) => {
+                const newKey = e.target.value;
+                setPrivateKey(newKey);
+                if (validatePrivateKey(newKey)) {
+                  const address = getAddressFromPrivateKey(newKey);
+                  setWalletAddress(address);
+                }
+              }}
+              disabled={isMining}
+            />
           </div>
 
-          {mode === "metamask" ? (
-            <div className="space-y-2">
-              {!metamaskConnected ? (
-                <Button onClick={connectMetamask} disabled={isMining}>
-                  Connect Metamask
-                </Button>
-              ) : (
-                <Input value={walletAddress} disabled />
-              )}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Wallet Address</label>
-              <Input
-                placeholder="Enter your wallet address"
-                value={walletAddress}
-                onChange={(e) => setWalletAddress(e.target.value)}
-                disabled={isMining}
-              />
-            </div>
-          )}
-
-          {mode === "manual" && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Private Key</label>
-              <Input
-                type="password"
-                placeholder="Enter your private key"
-                value={privateKey}
-                onChange={(e) => setPrivateKey(e.target.value)}
-                disabled={isMining}
-              />
-            </div>
-          )}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Адрес кошелька</label>
+            <Input
+              placeholder="Адрес сгенерируется автоматически"
+              value={walletAddress}
+              disabled={true}
+            />
+          </div>
 
           <div className="grid grid-cols-3 gap-4 mt-4 text-sm">
             <div>
-              <p className="font-medium">Current Difficulty</p>
+              <p className="font-medium">Текущая сложность</p>
               <p className="text-gray-600 truncate">{minerStats.difficulty}</p>
             </div>
             <div>
-              <p className="font-medium">Total Mined</p>
+              <p className="font-medium">Всего намайнено</p>
               <p className="text-gray-600">{minerStats.totalMined}</p>
             </div>
             <div>
-              <p className="font-medium">Balance</p>
-              <p className="text-gray-600">{minerStats.balance} GAPLO</p>
+              <p className="font-medium">Баланс</p>
+              <p className="text-gray-600">{formatBalance(minerStats.balance)}</p>
             </div>
           </div>
 
@@ -694,19 +641,15 @@ const WebMiner: React.FC = () => {
             className="w-full mt-4"
             onClick={toggleMining}
             variant={isMining ? "destructive" : "default"}
-            disabled={
-              mode === "manual"
-                ? !walletAddress || !privateKey
-                : !walletAddress || (mode === "metamask" && !metamaskConnected)
-            }
+            disabled={!walletAddress || !privateKey}
           >
             {isMining ? (
               <>
-                <StopCircle className="mr-2 h-4 w-4" /> Stop Mining
+                <StopCircle className="mr-2 h-4 w-4" /> Остановить майнинг
               </>
             ) : (
               <>
-                <PlayCircle className="mr-2 h-4 w-4" /> Start Mining
+                <PlayCircle className="mr-2 h-4 w-4" /> Начать майнинг
               </>
             )}
           </Button>
