@@ -323,8 +323,10 @@ const WebMiner: React.FC = () => {
 
   // Refs
   const miningRef = useRef<boolean>(false);
+  const miningProcessRef = useRef<boolean>(false);
   const web3Ref = useRef<Web3 | null>(null);
   const contractRef = useRef<Contract<ContractAbi> | null>(null);
+  const statsIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const web3Instance = new Web3(new Web3.providers.HttpProvider(RPC_URL));
@@ -455,62 +457,77 @@ const WebMiner: React.FC = () => {
   };
 
   const mine = async () => {
-    while (miningRef.current) {
-      try {
-        const minerParams = await getMinerParams(walletAddress);
-        // Обновить статистику
-        setMinerStats((prev) => ({
-          difficulty: minerParams.currentDifficulty.toString(),
-          totalMined: minerParams.totalMined,
-          balance: prev.balance,
-        }));
+    // Проверяем, не запущен ли уже процесс майнинга
+    if (miningProcessRef.current) {
+      return;
+    }
+    
+    miningProcessRef.current = true;
+    
+    try {
+      while (miningRef.current) {
+        try {
+          const minerParams = await getMinerParams(walletAddress);
+          // Обновить статистику
+          setMinerStats((prev) => ({
+            difficulty: minerParams.currentDifficulty.toString(),
+            totalMined: minerParams.totalMined,
+            balance: prev.balance,
+          }));
 
-        if (!web3Ref.current) return;
-        // Проверяем задержку по блокам
-        const currentBlock = await web3Ref.current.eth.getBlockNumber();
-        if (BigInt(currentBlock) - BigInt(minerParams.lastBlock) < BigInt(20)) {
-          await new Promise((resolve) => setTimeout(resolve, 10000));
-          continue;
-        }
+          if (!web3Ref.current) {
+            break;
+          }
+          
+          // Проверяем задержку по блокам
+          const currentBlock = await web3Ref.current.eth.getBlockNumber();
+          if (BigInt(currentBlock) - BigInt(minerParams.lastBlock) < BigInt(20)) {
+            await new Promise((resolve) => setTimeout(resolve, 10000));
+            continue;
+          }
 
-        // Майн и отправляем транзакцию
-        const nonce = await mineBlock(minerParams);
-        if (!nonce || !miningRef.current) break;
+          // Майн и отправляем транзакцию
+          const nonce = await mineBlock(minerParams);
+          if (!nonce || !miningRef.current) break;
 
-        const receipt = await sendMineTransaction(nonce);
+          const receipt = await sendMineTransaction(nonce);
 
-        setMinedShares((prev) => [
-          {
-            blockNumber: Number(receipt.blockNumber),
-            txHash: receipt.transactionHash.toString(),
-            timestamp: new Date().toLocaleString(),
-          },
-          ...prev,
-        ]);
+          setMinedShares((prev) => [
+            {
+              blockNumber: Number(receipt.blockNumber),
+              txHash: receipt.transactionHash.toString(),
+              timestamp: new Date().toLocaleString(),
+            },
+            ...prev,
+          ]);
 
-        // Обновляем статистику
-        const updatedParams = await getMinerParams(walletAddress);
-        await updateMinerStats();
-        setMinerStats((prev) => ({
-          ...prev,
-          difficulty: updatedParams.currentDifficulty.toString(),
-          totalMined: updatedParams.totalMined,
-        }));
-      } catch (error: unknown) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "An unknown error occurred during mining.";
-        console.error("Mining error:", message);
-        toast({
-          variant: "destructive",
-          title: "Mining Error",
-          description: message,
-        });
-        if (miningRef.current) {
-          await new Promise((resolve) => setTimeout(resolve, 5000));
+          // Обновляем статистику после успешного майнинга
+          await updateMinerStats();
+          const updatedParams = await getMinerParams(walletAddress);
+          setMinerStats((prev) => ({
+            ...prev,
+            difficulty: updatedParams.currentDifficulty.toString(),
+            totalMined: updatedParams.totalMined,
+          }));
+
+        } catch (error: unknown) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "An unknown error occurred during mining.";
+          console.error("Mining error:", message);
+          toast({
+            variant: "destructive",
+            title: "Mining Error",
+            description: message,
+          });
+          if (miningRef.current) {
+            await new Promise((resolve) => setTimeout(resolve, 5000));
+          }
         }
       }
+    } finally {
+      miningProcessRef.current = false;
     }
   };
 
@@ -532,7 +549,6 @@ const WebMiner: React.FC = () => {
         });
         return;
       }
-      // Валидируем приватный ключ
       if (!validatePrivateKey(privateKey)) {
         toast({
           variant: "destructive",
@@ -544,20 +560,31 @@ const WebMiner: React.FC = () => {
 
       setIsMining(true);
       miningRef.current = true;
+      // Запускаем обновление статистики
+      if (statsIntervalRef.current) {
+        clearInterval(statsIntervalRef.current);
+      }
+      statsIntervalRef.current = setInterval(updateMinerStats, 30000);
       mine();
     } else {
       setIsMining(false);
       miningRef.current = false;
+      // Останавливаем обновление статистики
+      if (statsIntervalRef.current) {
+        clearInterval(statsIntervalRef.current);
+        statsIntervalRef.current = null;
+      }
     }
   };
 
-  // Периодическое обновление статистики
+  // Очистка интервала при размонтировании компонента
   useEffect(() => {
-    if (isMining) {
-      const interval = setInterval(updateMinerStats, 30000);
-      return () => clearInterval(interval);
-    }
-  }, [isMining, walletAddress]);
+    return () => {
+      if (statsIntervalRef.current) {
+        clearInterval(statsIntervalRef.current);
+      }
+    };
+  }, []);
 
   // Определим столбцы для minedShares
   const columns: ColumnDef<MinedShare>[] = [
