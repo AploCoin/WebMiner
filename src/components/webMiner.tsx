@@ -28,6 +28,41 @@ import { ThemeSwitcher } from "./ThemeSwitcher";
 
 const RPC_URL = "https://pub1.aplocoin.com";
 const CONTRACT_ADDRESS = "0x0000000000000000000000000000000000001234";
+const APLO_STAKING_ADDRESS = "0x0000000000000000000000000000000000001235";
+const MIN_STAKE_APLO = "1000";
+const MIN_STAKE_WEI = BigInt("1000000000000000000000");
+
+const APLO_STAKING_ABI = [
+  {
+    inputs: [{ internalType: "uint256", name: "amount", type: "uint256" }],
+    name: "stake",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "unstake",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "account", type: "address" }],
+    name: "getStake",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "account", type: "address" }],
+    name: "getMultiplier",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+];
+
 const CONTRACT_ABI = [
   { inputs: [], stateMutability: "nonpayable", type: "constructor" },
   {
@@ -281,7 +316,7 @@ const validatePrivateKey = (key: string): boolean => {
 const getAddressFromPrivateKey = (privateKey: string): string => {
   try {
     // Добавляем префикс 0x если его нет
-    const formattedKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+    const formattedKey = formatPrivateKey(privateKey);
     // Создаем аккаунт из приватного ключа
     const account = new Web3().eth.accounts.privateKeyToAccount(formattedKey);
     return account.address;
@@ -304,6 +339,26 @@ const formatBalance = (balance: string): string => {
   return `${shortValue.toFixed(2)}${suffixes[suffixNum]} GAPLO`;
 };
 
+const formatAplo = (balance: string): string => {
+  const num = parseFloat(balance);
+  if (isNaN(num)) return "0 APLO";
+
+  const absNum = Math.abs(num);
+  if (absNum < 1000) return `${num.toFixed(2)} APLO`;
+
+  const suffixes = ["", "K", "M", "B", "T"];
+  const suffixNum = Math.min(
+    Math.floor(Math.log10(absNum) / 3),
+    suffixes.length - 1
+  );
+  const shortValue = num / Math.pow(1000, suffixNum);
+
+  return `${shortValue.toFixed(2)}${suffixes[suffixNum]} APLO`;
+};
+
+const formatPrivateKey = (key: string): string =>
+  key.startsWith("0x") ? key : `0x${key}`;
+
 const WebMiner: React.FC = () => {
   const { toast } = useToast();
 
@@ -321,11 +376,23 @@ const WebMiner: React.FC = () => {
     balance: "0",
   });
 
+  const [stakeStats, setStakeStats] = useState<{
+    staked: string;
+    multiplier: number;
+    canMine: boolean;
+  }>({
+    staked: "0",
+    multiplier: 0,
+    canMine: false,
+  });
+  const [isStaking, setIsStaking] = useState<boolean>(false);
+
   // Refs
   const miningRef = useRef<boolean>(false);
   const miningProcessRef = useRef<boolean>(false);
   const web3Ref = useRef<Web3 | null>(null);
   const contractRef = useRef<Contract<ContractAbi> | null>(null);
+  const stakingContractRef = useRef<Contract<ContractAbi> | null>(null);
   const statsIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -334,6 +401,10 @@ const WebMiner: React.FC = () => {
     contractRef.current = new web3Instance.eth.Contract(
       CONTRACT_ABI as any,
       CONTRACT_ADDRESS
+    );
+    stakingContractRef.current = new web3Instance.eth.Contract(
+      APLO_STAKING_ABI as any,
+      APLO_STAKING_ADDRESS
     );
   }, []);
 
@@ -436,7 +507,7 @@ const WebMiner: React.FC = () => {
     };
 
     // Добавляем 0x к приватному ключу, если его нет
-    const formattedPrivateKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+    const formattedPrivateKey = formatPrivateKey(privateKey);
     const signedTx = await web3.eth.accounts.signTransaction(
       txData,
       formattedPrivateKey
@@ -444,6 +515,102 @@ const WebMiner: React.FC = () => {
     if (!signedTx.rawTransaction)
       throw new Error("Failed to sign transaction");
     return await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+  };
+
+  const getStakeStatus = async () => {
+    if (!web3Ref.current || !stakingContractRef.current || !walletAddress) {
+      return { stakedWei: BigInt(0), staked: "0", multiplier: 0, canMine: false };
+    }
+
+    const web3 = web3Ref.current;
+    const [stakedRaw, multiplierRaw] = await Promise.all([
+      stakingContractRef.current.methods.getStake(walletAddress).call(),
+      stakingContractRef.current.methods.getMultiplier(walletAddress).call(),
+    ]);
+
+    const stakedWei = BigInt(stakedRaw?.toString() ?? "0");
+    const multiplierScaled = Number(multiplierRaw?.toString() ?? "0");
+    const status = {
+      stakedWei,
+      staked: web3.utils.fromWei(stakedWei.toString(), "ether"),
+      multiplier: multiplierScaled / 10,
+      canMine: stakedWei >= MIN_STAKE_WEI,
+    };
+
+    setStakeStats({
+      staked: status.staked,
+      multiplier: status.multiplier,
+      canMine: status.canMine,
+    });
+
+    return status;
+  };
+
+  const sendStakeTransaction = async (amountWei: bigint) => {
+    if (!web3Ref.current || !stakingContractRef.current)
+      throw new Error("Staking contract not initialized");
+
+    const web3 = web3Ref.current;
+    const transaction = stakingContractRef.current.methods.stake(amountWei.toString());
+    const gasEstimate = await transaction.estimateGas({ from: walletAddress });
+    const gasPrice = await web3.eth.getGasPrice();
+    const latestNonce = await web3.eth.getTransactionCount(
+      walletAddress,
+      "pending"
+    );
+
+    const txData = {
+      from: walletAddress,
+      to: APLO_STAKING_ADDRESS,
+      data: transaction.encodeABI(),
+      gas: Number(gasEstimate) + 10000,
+      gasPrice,
+      nonce: latestNonce,
+    };
+
+    const signedTx = await web3.eth.accounts.signTransaction(
+      txData,
+      formatPrivateKey(privateKey)
+    );
+    if (!signedTx.rawTransaction)
+      throw new Error("Failed to sign staking transaction");
+
+    return await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+  };
+
+  const ensureMinimumStake = async () => {
+    const status = await getStakeStatus();
+    if (status.canMine) return status;
+
+    const missingStakeWei = MIN_STAKE_WEI - status.stakedWei;
+    const missingStakeAplo = web3Ref.current!.utils.fromWei(
+      missingStakeWei.toString(),
+      "ether"
+    );
+
+    setIsStaking(true);
+    try {
+      toast({
+        title: "Starting staking",
+        description: `Staking ${missingStakeAplo} APLO before mining`,
+      });
+      await sendStakeTransaction(missingStakeWei);
+      const updatedStatus = await getStakeStatus();
+      if (!updatedStatus.canMine) {
+        throw new Error(
+          `Stake is still below ${MIN_STAKE_APLO} APLO. Current stake: ${updatedStatus.staked} APLO`
+        );
+      }
+
+      toast({
+        title: "Stake confirmed",
+        description: `Current multiplier: ${updatedStatus.multiplier.toFixed(1)}x`,
+      });
+      await updateMinerStats();
+      return updatedStatus;
+    } finally {
+      setIsStaking(false);
+    }
   };
 
   const updateMinerStats = async () => {
@@ -454,6 +621,8 @@ const WebMiner: React.FC = () => {
       ...prev,
       balance: web3Ref.current!.utils.fromWei(balance, "ether"),
     }));
+
+    await getStakeStatus();
   };
 
   const mine = async () => {
@@ -558,6 +727,21 @@ const WebMiner: React.FC = () => {
         return;
       }
 
+      try {
+        await ensureMinimumStake();
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "An unknown error occurred during staking.";
+        toast({
+          variant: "destructive",
+          title: "Staking Error",
+          description: message,
+        });
+        return;
+      }
+
       setIsMining(true);
       miningRef.current = true;
       // Запускаем обновление статистики
@@ -576,6 +760,18 @@ const WebMiner: React.FC = () => {
       }
     }
   };
+
+  useEffect(() => {
+    if (!walletAddress) {
+      setStakeStats({ staked: "0", multiplier: 0, canMine: false });
+      setMinerStats((prev) => ({ ...prev, balance: "0" }));
+      return;
+    }
+
+    updateMinerStats().catch((error) => {
+      console.error("Failed to update miner stats:", error);
+    });
+  }, [walletAddress]);
 
   // Очистка интервала при размонтировании компонента
   useEffect(() => {
@@ -664,13 +860,38 @@ const WebMiner: React.FC = () => {
             </div>
           </div>
 
+          <div className="grid grid-cols-3 gap-4 mt-4 text-sm rounded-md border p-3">
+            <div>
+              <p className="font-medium">Stake</p>
+              <p className="text-gray-600">{formatAplo(stakeStats.staked)}</p>
+            </div>
+            <div>
+              <p className="font-medium">Reward Multiplier</p>
+              <p className="text-gray-600">
+                {stakeStats.multiplier > 0
+                  ? `${stakeStats.multiplier.toFixed(1)}x`
+                  : "Not staked"}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium">Mining Status</p>
+              <p className={stakeStats.canMine ? "text-green-600" : "text-yellow-600"}>
+                {stakeStats.canMine ? "Stake OK" : `Needs ${MIN_STAKE_APLO} APLO stake`}
+              </p>
+            </div>
+          </div>
+
           <Button
             className="w-full mt-4"
             onClick={toggleMining}
             variant={isMining ? "destructive" : "default"}
-            disabled={!walletAddress || !privateKey}
+            disabled={!walletAddress || !privateKey || isStaking}
           >
-            {isMining ? (
+            {isStaking ? (
+              <>
+                <PlayCircle className="mr-2 h-4 w-4 animate-spin" /> Staking...
+              </>
+            ) : isMining ? (
               <>
                 <StopCircle className="mr-2 h-4 w-4" /> Stop Mining
               </>
