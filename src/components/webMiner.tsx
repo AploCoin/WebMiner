@@ -359,6 +359,9 @@ const formatAplo = (balance: string): string => {
 const formatPrivateKey = (key: string): string =>
   key.startsWith("0x") ? key : `0x${key}`;
 
+const isValidStakeAmount = (amount: string): boolean =>
+  /^(?:\d+|\d*\.\d+)$/.test(amount.trim()) && Number(amount) > 0;
+
 const WebMiner: React.FC = () => {
   const { toast } = useToast();
 
@@ -386,6 +389,7 @@ const WebMiner: React.FC = () => {
     canMine: false,
   });
   const [isStaking, setIsStaking] = useState<boolean>(false);
+  const [stakeAmount, setStakeAmount] = useState<string>(MIN_STAKE_APLO);
 
   // Refs
   const miningRef = useRef<boolean>(false);
@@ -608,6 +612,76 @@ const WebMiner: React.FC = () => {
       });
       await updateMinerStats();
       return updatedStatus;
+    } finally {
+      setIsStaking(false);
+    }
+  };
+
+  const handleStake = async () => {
+    if (!walletAddress) {
+      toast({
+        variant: "destructive",
+        title: "No Wallet Address",
+        description: "Please enter a valid private key first",
+      });
+      return;
+    }
+
+    if (!privateKey || !validatePrivateKey(privateKey)) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Private Key",
+        description: "Private key must contain 64 hex characters with or without 0x prefix",
+      });
+      return;
+    }
+
+    if (!web3Ref.current) {
+      toast({
+        variant: "destructive",
+        title: "Web3 Error",
+        description: "Web3 is not initialized yet",
+      });
+      return;
+    }
+
+    const normalizedAmount = stakeAmount.trim().replace(",", ".");
+    if (!isValidStakeAmount(normalizedAmount)) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Stake Amount",
+        description: "Enter a positive APLO amount to stake",
+      });
+      return;
+    }
+
+    setIsStaking(true);
+    try {
+      const amountWei = BigInt(web3Ref.current.utils.toWei(normalizedAmount, "ether"));
+
+      toast({
+        title: "Starting staking",
+        description: `Staking ${normalizedAmount} APLO`,
+      });
+
+      await sendStakeTransaction(amountWei);
+      const updatedStatus = await getStakeStatus();
+      await updateMinerStats();
+
+      toast({
+        title: "Stake confirmed",
+        description: `Current stake: ${formatAplo(updatedStatus.staked)} · Multiplier: ${updatedStatus.multiplier.toFixed(1)}x`,
+      });
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "An unknown error occurred during staking.";
+      toast({
+        variant: "destructive",
+        title: "Staking Error",
+        description: message,
+      });
     } finally {
       setIsStaking(false);
     }
@@ -879,6 +953,37 @@ const WebMiner: React.FC = () => {
                 {stakeStats.canMine ? "Stake OK" : `Needs ${MIN_STAKE_APLO} APLO stake`}
               </p>
             </div>
+          </div>
+
+          <div className="space-y-2 rounded-md border p-3">
+            <label className="text-sm font-medium">Stake APLO Amount</label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                type="number"
+                min="0"
+                step="0.000000000000000001"
+                placeholder={`Minimum ${MIN_STAKE_APLO} APLO to mine`}
+                value={stakeAmount}
+                onChange={(e) => setStakeAmount(e.target.value)}
+                disabled={isMining || isStaking}
+              />
+              <Button
+                type="button"
+                onClick={handleStake}
+                disabled={!walletAddress || !privateKey || isMining || isStaking || !stakeAmount}
+              >
+                {isStaking ? (
+                  <>
+                    <PlayCircle className="mr-2 h-4 w-4 animate-spin" /> Staking...
+                  </>
+                ) : (
+                  "Stake APLO"
+                )}
+              </Button>
+            </div>
+            <p className="text-xs text-gray-500">
+              Mining starts only after at least {MIN_STAKE_APLO} APLO is staked.
+            </p>
           </div>
 
           <Button
