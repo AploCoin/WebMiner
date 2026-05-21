@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { PlayCircle, StopCircle } from "lucide-react";
 import Web3 from "web3";
 import type { Contract } from "web3-eth-contract";
@@ -26,7 +28,12 @@ import {
 } from "@/components/ui/table";
 import { ThemeSwitcher } from "./ThemeSwitcher";
 
-const RPC_URL = "https://pub1.aplocoin.com";
+const PRESET_RPC_NODES = [
+  { label: "Pub1", url: "https://pub1.aplocoin.com" },
+  { label: "Pub2", url: "https://pub2.aplocoin.com" },
+  { label: "Custom", url: "" },
+];
+
 const CONTRACT_ADDRESS = "0x0000000000000000000000000000000000001234";
 const APLO_STAKING_ADDRESS = "0x0000000000000000000000000000000000001235";
 const MIN_STAKE_APLO = "1000";
@@ -308,6 +315,15 @@ declare global {
   }
 }
 
+const validateRpcUrl = (url: string): boolean => {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
 const validatePrivateKey = (key: string): boolean => {
   // Проверяем ключ с префиксом 0x (66 символов) или без него (64 символа)
   return /^(0x)?[0-9a-fA-F]{64}$/.test(key);
@@ -391,6 +407,11 @@ const WebMiner: React.FC = () => {
   const [isStaking, setIsStaking] = useState<boolean>(false);
   const [stakeAmount, setStakeAmount] = useState<string>(MIN_STAKE_APLO);
 
+  // RPC Node selection state
+  const [selectedNodeType, setSelectedNodeType] = useState<string>("pub1");
+  const [customRpcUrl, setCustomRpcUrl] = useState<string>("");
+  const [currentRpcUrl, setCurrentRpcUrl] = useState<string>(PRESET_RPC_NODES[0].url);
+
   // Refs
   const miningRef = useRef<boolean>(false);
   const miningProcessRef = useRef<boolean>(false);
@@ -399,8 +420,33 @@ const WebMiner: React.FC = () => {
   const stakingContractRef = useRef<Contract<ContractAbi> | null>(null);
   const statsIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Load saved RPC settings from localStorage
   useEffect(() => {
-    const web3Instance = new Web3(new Web3.providers.HttpProvider(RPC_URL));
+    if (typeof window !== "undefined") {
+      const savedNodeType = localStorage.getItem("rpcNodeType");
+      const savedCustomUrl = localStorage.getItem("customRpcUrl");
+
+      if (savedNodeType) {
+        setSelectedNodeType(savedNodeType);
+      }
+      if (savedCustomUrl) {
+        setCustomRpcUrl(savedCustomUrl);
+      }
+
+      // Set initial RPC URL based on saved settings
+      if (savedNodeType === "custom" && savedCustomUrl) {
+        setCurrentRpcUrl(savedCustomUrl);
+      } else if (savedNodeType === "pub2") {
+        setCurrentRpcUrl(PRESET_RPC_NODES[1].url);
+      } else {
+        setCurrentRpcUrl(PRESET_RPC_NODES[0].url);
+      }
+    }
+  }, []);
+
+  // Initialize Web3 with current RPC URL
+  const initializeWeb3 = (rpcUrl: string) => {
+    const web3Instance = new Web3(new Web3.providers.HttpProvider(rpcUrl));
     web3Ref.current = web3Instance;
     contractRef.current = new web3Instance.eth.Contract(
       CONTRACT_ABI as any,
@@ -410,7 +456,13 @@ const WebMiner: React.FC = () => {
       APLO_STAKING_ABI as any,
       APLO_STAKING_ADDRESS
     );
-  }, []);
+  };
+
+  useEffect(() => {
+    if (currentRpcUrl) {
+      initializeWeb3(currentRpcUrl);
+    }
+  }, [currentRpcUrl]);
 
   const getMinerParams = async (address: string): Promise<MinerParams> => {
     if (!contractRef.current) throw new Error("Contract not initialized");
@@ -636,6 +688,15 @@ const WebMiner: React.FC = () => {
       return;
     }
 
+    if (!currentRpcUrl || !validateRpcUrl(currentRpcUrl)) {
+      toast({
+        variant: "destructive",
+        title: "Invalid RPC URL",
+        description: "Please select a valid RPC node before staking",
+      });
+      return;
+    }
+
     if (!web3Ref.current) {
       toast({
         variant: "destructive",
@@ -801,6 +862,16 @@ const WebMiner: React.FC = () => {
         return;
       }
 
+      // Validate RPC URL before mining
+      if (!currentRpcUrl || !validateRpcUrl(currentRpcUrl)) {
+        toast({
+          variant: "destructive",
+          title: "Invalid RPC URL",
+          description: "Please select a valid RPC node",
+        });
+        return;
+      }
+
       try {
         await ensureMinimumStake();
       } catch (error: unknown) {
@@ -831,6 +902,56 @@ const WebMiner: React.FC = () => {
       if (statsIntervalRef.current) {
         clearInterval(statsIntervalRef.current);
         statsIntervalRef.current = null;
+      }
+    }
+  };
+
+  // Handle RPC node change
+  const handleNodeChange = (nodeType: string) => {
+    // Stop mining if active
+    if (isMining) {
+      setIsMining(false);
+      miningRef.current = false;
+      if (statsIntervalRef.current) {
+        clearInterval(statsIntervalRef.current);
+        statsIntervalRef.current = null;
+      }
+      toast({
+        title: "Mining Stopped",
+        description: "Mining stopped due to RPC node change",
+      });
+    }
+
+    setSelectedNodeType(nodeType);
+    localStorage.setItem("rpcNodeType", nodeType);
+
+    let newRpcUrl = "";
+    if (nodeType === "pub1") {
+      newRpcUrl = PRESET_RPC_NODES[0].url;
+    } else if (nodeType === "pub2") {
+      newRpcUrl = PRESET_RPC_NODES[1].url;
+    } else if (nodeType === "custom") {
+      newRpcUrl = customRpcUrl;
+      if (!newRpcUrl || !validateRpcUrl(newRpcUrl)) {
+        toast({
+          variant: "destructive",
+          title: "Invalid Custom RPC URL",
+          description: "Please enter a valid HTTP/HTTPS URL",
+        });
+        return;
+      }
+    }
+
+    setCurrentRpcUrl(newRpcUrl);
+  };
+
+  const handleCustomRpcChange = (url: string) => {
+    setCustomRpcUrl(url);
+    localStorage.setItem("customRpcUrl", url);
+
+    if (selectedNodeType === "custom") {
+      if (validateRpcUrl(url)) {
+        setCurrentRpcUrl(url);
       }
     }
   };
@@ -885,6 +1006,9 @@ const WebMiner: React.FC = () => {
     columns: columns,
     getCoreRowModel: getCoreRowModel(),
   });
+
+  const isRpcReady = Boolean(currentRpcUrl && validateRpcUrl(currentRpcUrl));
+
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <Card>
@@ -892,6 +1016,44 @@ const WebMiner: React.FC = () => {
           <CardTitle className="text-2xl font-bold flex flex-row justify-between"><span>GAplo Web Miner</span> <ThemeSwitcher/></CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* RPC Node Selection */}
+          <div className="space-y-3 rounded-md border p-4 bg-muted/50">
+            <Label className="text-sm font-medium">RPC Node</Label>
+            <RadioGroup value={selectedNodeType} onValueChange={handleNodeChange}>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="pub1" id="pub1" disabled={isMining} />
+                <Label htmlFor="pub1" className="font-normal cursor-pointer">
+                  Pub1 (https://pub1.aplocoin.com)
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="pub2" id="pub2" disabled={isMining} />
+                <Label htmlFor="pub2" className="font-normal cursor-pointer">
+                  Pub2 (https://pub2.aplocoin.com)
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="custom" id="custom" disabled={isMining} />
+                <Label htmlFor="custom" className="font-normal cursor-pointer">
+                  Custom RPC URL
+                </Label>
+              </div>
+            </RadioGroup>
+            {selectedNodeType === "custom" && (
+              <Input
+                type="text"
+                placeholder="https://your-rpc-node.com"
+                value={customRpcUrl}
+                onChange={(e) => handleCustomRpcChange(e.target.value)}
+                disabled={isMining}
+                className="mt-2"
+              />
+            )}
+            <p className="text-xs text-muted-foreground">
+              Current RPC: <span className="font-mono">{currentRpcUrl || "Not set"}</span>
+            </p>
+          </div>
+
           <div className="space-y-2">
             <label className="text-sm font-medium">Private Key</label>
             <Input
@@ -970,7 +1132,7 @@ const WebMiner: React.FC = () => {
               <Button
                 type="button"
                 onClick={handleStake}
-                disabled={!walletAddress || !privateKey || isMining || isStaking || !stakeAmount}
+                disabled={!walletAddress || !privateKey || isMining || isStaking || !stakeAmount || !isRpcReady}
               >
                 {isStaking ? (
                   <>
@@ -990,7 +1152,7 @@ const WebMiner: React.FC = () => {
             className="w-full mt-4"
             onClick={toggleMining}
             variant={isMining ? "destructive" : "default"}
-            disabled={!walletAddress || !privateKey || isStaking}
+            disabled={!walletAddress || !privateKey || isStaking || !isRpcReady}
           >
             {isStaking ? (
               <>
