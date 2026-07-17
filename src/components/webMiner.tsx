@@ -320,6 +320,11 @@ interface StakePlanRow {
   status: string;
 }
 
+type MiningWorkerMessage =
+  | { type: "found"; jobId: number; nonce: string; hash: string }
+  | { type: "heartbeat"; jobId: number; at: number }
+  | { type: "error"; jobId: number; message: string };
+
 declare global {
   interface Window {
     ethereum?: {
@@ -399,11 +404,29 @@ const formatMiningDifficulty = (difficulty: bigint): string => {
 };
 
 const STAKE_PLAN_ROWS: StakePlanRow[] = [
+  { stake: "< 1,000 APLO", reward: "No mining reward", multiplier: "0", status: "Below minimum" },
   { stake: "1,000 APLO", reward: "Base reward", multiplier: "1.0x", status: "Minimum to mine" },
-  { stake: "2,500 APLO", reward: "+25% reward", multiplier: "1.25x", status: "Recommended" },
-  { stake: "5,000 APLO", reward: "+50% reward", multiplier: "1.5x", status: "Power miner" },
-  { stake: "10,000 APLO", reward: "2x reward", multiplier: "2.0x", status: "Maximum tier" },
+  { stake: "2,000 APLO", reward: "+10% reward", multiplier: "1.1x", status: "Tier 2" },
+  { stake: "3,000 APLO", reward: "+20% reward", multiplier: "1.2x", status: "Tier 3" },
+  { stake: "4,000 APLO", reward: "+30% reward", multiplier: "1.3x", status: "Tier 4" },
+  { stake: "5,000 APLO", reward: "+40% reward", multiplier: "1.4x", status: "Tier 5" },
+  { stake: "6,000 APLO", reward: "+50% reward", multiplier: "1.5x", status: "Tier 6" },
+  { stake: "7,000 APLO", reward: "+60% reward", multiplier: "1.6x", status: "Tier 7" },
+  { stake: "8,000+ APLO", reward: "+70% reward", multiplier: "1.7x", status: "Max tier" },
 ];
+
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+};
 
 const WebMiner: React.FC = () => {
   const { toast } = useToast();
@@ -449,6 +472,8 @@ const WebMiner: React.FC = () => {
   const contractRef = useRef<Contract<ContractAbi> | null>(null);
   const stakingContractRef = useRef<Contract<ContractAbi> | null>(null);
   const statsIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const miningWorkerRef = useRef<Worker | null>(null);
+  const miningJobIdRef = useRef<number>(0);
 
   // Load saved RPC settings from localStorage
   useEffect(() => {
@@ -504,9 +529,11 @@ const WebMiner: React.FC = () => {
 
   const getMinerParams = async (address: string): Promise<MinerParams> => {
     if (!contractRef.current) throw new Error("Contract not initialized");
-    const params = (await contractRef.current.methods
-      .miner_params(address)
-      .call()) as any[];
+    const params = (await withTimeout(
+      contractRef.current.methods.miner_params(address).call() as Promise<any>,
+      15000,
+      "miner_params RPC"
+    )) as any[];
     return {
       lastBlock: parseInt(params[0]),
       currentDifficulty:
@@ -549,31 +576,75 @@ const WebMiner: React.FC = () => {
     return BigInt("0x" + hash.slice(2));
   };
 
+  const getMiningWorker = () => {
+    if (miningWorkerRef.current) return miningWorkerRef.current;
+    const worker = new Worker(new URL("../workers/miningWorker.ts", import.meta.url));
+    miningWorkerRef.current = worker;
+    return worker;
+  };
+
+  const stopMiningWorker = () => {
+    miningJobIdRef.current += 1;
+    miningWorkerRef.current?.postMessage({ type: "stop" });
+  };
+
   const mineBlock = async (
     minerParams: MinerParams
   ): Promise<bigint | undefined> => {
-    while (miningRef.current) {
-      const nonce = generateNonce();
-      const hashResult = hashNonce(
-        nonce,
-        walletAddress,
-        minerParams.currentDifficulty,
-        minerParams.prevHash,
-        minerParams.totalMined
-      );
+    const worker = getMiningWorker();
+    const jobId = miningJobIdRef.current + 1;
+    miningJobIdRef.current = jobId;
 
-      if (hashResult < minerParams.currentDifficulty) {
-        if (!web3Ref.current) break;
-        minerParams.totalMined++;
-        minerParams.lastBlock = Number(
-          await web3Ref.current.eth.getBlockNumber()
-        );
-        minerParams.prevHash = hashResult;
-        return nonce;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    return undefined;
+    return await new Promise<bigint | undefined>((resolve, reject) => {
+      const cleanup = () => {
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+      };
+
+      const onError = (event: ErrorEvent) => {
+        cleanup();
+        reject(new Error(event.message || "Mining worker crashed"));
+      };
+
+      const onMessage = (event: MessageEvent<MiningWorkerMessage>) => {
+        const message = event.data;
+        if (message.jobId !== jobId) return;
+
+        if (message.type === "found") {
+          cleanup();
+          minerParams.totalMined += 1;
+          minerParams.prevHash = BigInt(message.hash);
+          resolve(BigInt(message.nonce));
+        }
+
+        if (message.type === "error") {
+          cleanup();
+          reject(new Error(message.message));
+        }
+      };
+
+      worker.addEventListener("message", onMessage);
+      worker.addEventListener("error", onError);
+      worker.postMessage({
+        type: "start",
+        jobId,
+        sender: walletAddress,
+        difficulty: minerParams.currentDifficulty.toString(),
+        prevHash: minerParams.prevHash.toString(),
+        totalMined: minerParams.totalMined,
+      });
+
+      const checkStopped = () => {
+        if (!miningRef.current || miningJobIdRef.current !== jobId) {
+          cleanup();
+          worker.postMessage({ type: "stop" });
+          resolve(undefined);
+          return;
+        }
+        setTimeout(checkStopped, 1000);
+      };
+      checkStopped();
+    });
   };
 
   const sendLegacyMineTransaction = async (nonce: bigint) => {
@@ -969,7 +1040,11 @@ const WebMiner: React.FC = () => {
   const updateMinerStats = async () => {
     if (!walletAddress || !web3Ref.current) return;
 
-    const balance = await web3Ref.current.eth.getBalance(walletAddress);
+    const balance = await withTimeout(
+      web3Ref.current.eth.getBalance(walletAddress),
+      15000,
+      "getBalance RPC"
+    );
     setMinerStats((prev) => ({
       ...prev,
       balance: web3Ref.current!.utils.fromWei(balance, "ether"),
@@ -1002,7 +1077,11 @@ const WebMiner: React.FC = () => {
           }
           
           // Проверяем задержку по блокам
-          const currentBlock = await web3Ref.current.eth.getBlockNumber();
+          const currentBlock = await withTimeout(
+            web3Ref.current.eth.getBlockNumber(),
+            15000,
+            "getBlockNumber RPC"
+          );
           if (BigInt(currentBlock) - BigInt(minerParams.lastBlock) < BigInt(20)) {
             await new Promise((resolve) => setTimeout(resolve, 10000));
             continue;
@@ -1116,6 +1195,7 @@ const WebMiner: React.FC = () => {
     } else {
       setIsMining(false);
       miningRef.current = false;
+      stopMiningWorker();
       // Останавливаем обновление статистики
       if (statsIntervalRef.current) {
         clearInterval(statsIntervalRef.current);
@@ -1128,6 +1208,7 @@ const WebMiner: React.FC = () => {
     if (isMining) {
       setIsMining(false);
       miningRef.current = false;
+      stopMiningWorker();
       if (statsIntervalRef.current) {
         clearInterval(statsIntervalRef.current);
         statsIntervalRef.current = null;
@@ -1144,6 +1225,7 @@ const WebMiner: React.FC = () => {
     if (isMining) {
       setIsMining(false);
       miningRef.current = false;
+      stopMiningWorker();
       if (statsIntervalRef.current) {
         clearInterval(statsIntervalRef.current);
         statsIntervalRef.current = null;
@@ -1206,8 +1288,27 @@ const WebMiner: React.FC = () => {
       if (statsIntervalRef.current) {
         clearInterval(statsIntervalRef.current);
       }
+      stopMiningWorker();
+      miningWorkerRef.current?.terminate();
+      miningWorkerRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden && miningRef.current) {
+        initializeWeb3(currentRpcUrl);
+        updateMinerStats().catch((error) => {
+          console.error("Failed to refresh miner stats after tab restore:", error);
+        });
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [currentRpcUrl, walletAddress]);
 
   // Определим столбцы для minedShares
   const columns: ColumnDef<MinedShare>[] = [
