@@ -39,7 +39,7 @@ const APLO_STAKING_ADDRESS = "0x0000000000000000000000000000000000001235";
 const MIN_STAKE_APLO = "1000";
 const MIN_STAKE_WEI = BigInt("1000000000000000000000");
 const MAX_UINT256 = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
-const AA_BUNDLER_URL = process.env.NEXT_PUBLIC_AA_BUNDLER_URL;
+const EXECUTION_MODE_SINGLE_DEFAULT = `0x${"0".repeat(64)}`;
 
 const APLO_STAKING_ABI = [
   {
@@ -68,6 +68,20 @@ const APLO_STAKING_ABI = [
     name: "getMultiplier",
     outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
     stateMutability: "view",
+    type: "function",
+  },
+];
+
+const ERC7715_DELEGATION_MANAGER_ABI = [
+  {
+    inputs: [
+      { internalType: "bytes[]", name: "_permissionContexts", type: "bytes[]" },
+      { internalType: "bytes32[]", name: "_modes", type: "bytes32[]" },
+      { internalType: "bytes[]", name: "_executionCallData", type: "bytes[]" },
+    ],
+    name: "redeemDelegations",
+    outputs: [],
+    stateMutability: "nonpayable",
     type: "function",
   },
 ];
@@ -325,6 +339,15 @@ type MiningWorkerMessage =
   | { type: "heartbeat"; jobId: number; at: number }
   | { type: "error"; jobId: number; message: string };
 
+interface Erc7715PermissionResponse {
+  chainId: string;
+  from: string;
+  to: string;
+  context: string;
+  delegationManager: string;
+  dependencies?: { factory?: string; factoryData?: string }[];
+}
+
 declare global {
   interface Window {
     ethereum?: {
@@ -436,6 +459,7 @@ const WebMiner: React.FC = () => {
   const [privateKey, setPrivateKey] = useState<string>("");
   const [isWalletConnecting, setIsWalletConnecting] = useState<boolean>(false);
   const [aaSessionAddress, setAaSessionAddress] = useState<string>("");
+  const [erc7715Permission, setErc7715Permission] = useState<Erc7715PermissionResponse | null>(null);
   const [isMining, setIsMining] = useState<boolean>(false);
   const [minedShares, setMinedShares] = useState<MinedShare[]>([]);
   const [minerStats, setMinerStats] = useState<{
@@ -502,9 +526,19 @@ const WebMiner: React.FC = () => {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const savedSessionKey = localStorage.getItem("aaSessionPrivateKey");
-    if (!savedSessionKey) return;
-    const sessionAddress = getAddressFromPrivateKey(savedSessionKey);
-    if (sessionAddress) setAaSessionAddress(sessionAddress);
+    if (savedSessionKey) {
+      const sessionAddress = getAddressFromPrivateKey(savedSessionKey);
+      if (sessionAddress) setAaSessionAddress(sessionAddress);
+    }
+
+    const savedPermission = localStorage.getItem("erc7715MiningPermission");
+    if (savedPermission) {
+      try {
+        setErc7715Permission(JSON.parse(savedPermission));
+      } catch {
+        localStorage.removeItem("erc7715MiningPermission");
+      }
+    }
   }, []);
 
   // Initialize Web3 with current RPC URL
@@ -697,45 +731,136 @@ const WebMiner: React.FC = () => {
     return { privateKey: account.privateKey, address: account.address };
   };
 
-  const sendCurrentMineUserOperation = async (nonce: bigint) => {
-    if (!web3Ref.current || !contractRef.current)
-      throw new Error("Not initialized");
-    if (!AA_BUNDLER_URL) {
+  const getCurrentChainId = async () => {
+    if (!window.ethereum) throw new Error("Connect an EIP-1193 wallet first");
+    return (await window.ethereum.request({ method: "eth_chainId" })) as string;
+  };
+
+  const requestErc7715MiningPermission = async () => {
+    if (!window.ethereum) throw new Error("Connect an EIP-1193 wallet first");
+    if (!walletAddress) throw new Error("Connect wallet first");
+
+    const sessionKey = getOrCreateAaSessionKey();
+    const chainId = await getCurrentChainId();
+
+    const supported = await window.ethereum
+      .request({ method: "wallet_getSupportedExecutionPermissions", params: [] })
+      .catch(() => null);
+
+    if (supported && !supported["contract-call"]) {
       throw new Error(
-        "Account abstraction bundler is not configured. Set NEXT_PUBLIC_AA_BUNDLER_URL to mine in Current mode without MetaMask prompts."
+        "Connected wallet does not advertise ERC-7715 contract-call execution permissions yet. Update/switch wallet or use Legacy mode."
       );
     }
 
-    const sessionKey = getOrCreateAaSessionKey();
-    const nonceHex = web3Ref.current.utils.padLeft(web3Ref.current.utils.toHex(nonce), 64);
-    const callData = contractRef.current.methods.mine(nonceHex).encodeABI();
-    const operation = {
-      sender: walletAddress,
-      sessionKey: sessionKey.address,
-      target: CONTRACT_ADDRESS,
-      callData,
-      nonce: Date.now().toString(),
-    };
-    const signature = web3Ref.current.eth.accounts.sign(
-      JSON.stringify(operation),
-      sessionKey.privateKey
-    ).signature;
+    const expiry = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30;
+    const [permission] = (await window.ethereum.request({
+      method: "wallet_requestExecutionPermissions",
+      params: [
+        [
+          {
+            chainId,
+            from: walletAddress,
+            to: sessionKey.address,
+            permission: {
+              type: "contract-call",
+              isAdjustmentAllowed: false,
+              data: {
+                target: CONTRACT_ADDRESS,
+                selector: "0x2fdc505e",
+                valueLimit: "0x0",
+                description: "Allow WebMiner session key to submit mine(bytes32) transactions without repeated wallet popups",
+              },
+            },
+            rules: [
+              { type: "expiry", data: { timestamp: expiry } },
+            ],
+          },
+        ],
+      ],
+    })) as Erc7715PermissionResponse[];
 
-    const response = await fetch(AA_BUNDLER_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...operation, signature }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`AA bundler rejected mining operation: ${response.status} ${await response.text()}`);
+    if (!permission?.context || !permission.delegationManager) {
+      throw new Error("Wallet did not return a usable ERC-7715 permission");
     }
 
-    const result = await response.json();
-    return {
-      blockNumber: BigInt(result.blockNumber ?? 0),
-      transactionHash: result.transactionHash ?? result.userOperationHash ?? "AA user operation submitted",
-    };
+    localStorage.setItem("erc7715MiningPermission", JSON.stringify(permission));
+    setErc7715Permission(permission);
+    toast({ title: "Mining permission granted", description: "ERC-7715 session permission is ready" });
+    return permission;
+  };
+
+  const getUsableErc7715Permission = async () => {
+    if (erc7715Permission?.context && erc7715Permission.delegationManager) {
+      return erc7715Permission;
+    }
+    return await requestErc7715MiningPermission();
+  };
+
+  const encodeErc7715Execution = (target: string, value: string, callData: string) => {
+    if (!web3Ref.current) throw new Error("Web3 is not initialized");
+    const encoded = web3Ref.current.utils.encodePacked(
+      { type: "address", value: target },
+      { type: "uint256", value },
+      { type: "bytes", value: callData }
+    );
+    if (!encoded) throw new Error("Failed to encode ERC-7715 execution");
+    return encoded;
+  };
+
+  const sendCurrentMineUserOperation = async (nonce: bigint) => {
+    if (!web3Ref.current || !contractRef.current)
+      throw new Error("Not initialized");
+
+    const sessionKey = getOrCreateAaSessionKey();
+    const permission = await getUsableErc7715Permission();
+    const nonceHex = web3Ref.current.utils.padLeft(web3Ref.current.utils.toHex(nonce), 64);
+    const callData = contractRef.current.methods.mine(nonceHex).encodeABI();
+    const executionCalldata = encodeErc7715Execution(CONTRACT_ADDRESS, "0", callData);
+    const delegationManager = new web3Ref.current.eth.Contract(
+      ERC7715_DELEGATION_MANAGER_ABI as any,
+      permission.delegationManager
+    );
+    const redeemTx = delegationManager.methods.redeemDelegations(
+      [permission.context],
+      [EXECUTION_MODE_SINGLE_DEFAULT],
+      [executionCalldata]
+    );
+
+    for (const dependency of permission.dependencies ?? []) {
+      if (dependency.factory && dependency.factoryData) {
+        throw new Error(
+          "ERC-7715 permission returned undeployed dependencies. Deploying permission dependency contracts is not supported by this miner yet."
+        );
+      }
+    }
+
+    const gasEstimate = await withTimeout(
+      redeemTx.estimateGas({ from: sessionKey.address }),
+      15000,
+      "ERC-7715 redeem gas estimate"
+    );
+    const gasPrice = await withTimeout(web3Ref.current.eth.getGasPrice(), 15000, "getGasPrice RPC");
+    const sessionNonce = await withTimeout(
+      web3Ref.current.eth.getTransactionCount(sessionKey.address, "pending"),
+      15000,
+      "session nonce RPC"
+    );
+
+    const signedTx = await web3Ref.current.eth.accounts.signTransaction(
+      {
+        from: sessionKey.address,
+        to: permission.delegationManager,
+        data: redeemTx.encodeABI(),
+        gas: Number(gasEstimate) + 10000,
+        gasPrice,
+        nonce: sessionNonce,
+      },
+      sessionKey.privateKey
+    );
+
+    if (!signedTx.rawTransaction) throw new Error("Failed to sign ERC-7715 mining transaction");
+    return await web3Ref.current.eth.sendSignedTransaction(signedTx.rawTransaction);
   };
 
   const sendMineTransaction = (nonce: bigint) =>
@@ -1430,17 +1555,32 @@ const WebMiner: React.FC = () => {
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-medium">Connected Wallet</p>
-                  <p className="text-xs text-muted-foreground">Private keys are not entered in Current mode. Stake/unstake uses wallet transaction signing; mining uses an AA session key + bundler.</p>
+                  <p className="text-xs text-muted-foreground">Private keys are not entered in Current mode. Stake/unstake uses wallet transaction signing; mining uses an ERC-7715 session permission when the wallet supports it.</p>
                 </div>
                 <Button type="button" onClick={connectWallet} disabled={isWalletConnecting || isMining || !isRpcReady}>
                   <Wallet className="mr-2 h-4 w-4" />
                   {walletAddress ? "Reconnect Wallet" : isWalletConnecting ? "Connecting..." : "Connect Wallet"}
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">AA session key: <span className="font-mono">{aaSessionAddress || "created after wallet connect"}</span></p>
-              {!AA_BUNDLER_URL && (
-                <p className="text-xs text-yellow-600">Set NEXT_PUBLIC_AA_BUNDLER_URL to submit mined shares without repeated MetaMask prompts.</p>
-              )}
+              <p className="text-xs text-muted-foreground">ERC-7715 session key: <span className="font-mono">{aaSessionAddress || "created after wallet connect"}</span></p>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className={erc7715Permission ? "text-xs text-green-600" : "text-xs text-yellow-600"}>
+                  {erc7715Permission
+                    ? "ERC-7715 mining permission is stored for automatic background submissions."
+                    : "Grant one ERC-7715 permission so Current mining can submit shares without repeated wallet popups."}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => requestErc7715MiningPermission().catch((error) => {
+                    const message = error instanceof Error ? error.message : "Failed to request ERC-7715 permission";
+                    toast({ variant: "destructive", title: "ERC-7715 Error", description: message });
+                  })}
+                  disabled={!walletAddress || isMining || !isRpcReady}
+                >
+                  Grant ERC-7715 Permission
+                </Button>
+              </div>
             </div>
           )}
 
