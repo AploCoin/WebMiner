@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { PlayCircle, StopCircle } from "lucide-react";
+import { PlayCircle, StopCircle, Wallet } from "lucide-react";
 import Web3 from "web3";
 import type { Contract } from "web3-eth-contract";
 import { useToast } from "@/hooks/use-toast";
@@ -38,6 +38,8 @@ const CONTRACT_ADDRESS = "0x0000000000000000000000000000000000001234";
 const APLO_STAKING_ADDRESS = "0x0000000000000000000000000000000000001235";
 const MIN_STAKE_APLO = "1000";
 const MIN_STAKE_WEI = BigInt("1000000000000000000000");
+const MAX_UINT256 = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
+const AA_BUNDLER_URL = process.env.NEXT_PUBLIC_AA_BUNDLER_URL;
 
 const APLO_STAKING_ABI = [
   {
@@ -309,9 +311,22 @@ interface MinedShare {
   timestamp: string;
 }
 
+type MinerMode = "current" | "legacy";
+
+interface StakePlanRow {
+  stake: string;
+  reward: string;
+  multiplier: string;
+  status: string;
+}
+
 declare global {
   interface Window {
-    ethereum?: any;
+    ethereum?: {
+      request: (args: { method: string; params?: unknown[] }) => Promise<any>;
+      on?: (event: string, handler: (...args: any[]) => void) => void;
+      removeListener?: (event: string, handler: (...args: any[]) => void) => void;
+    };
   }
 }
 
@@ -378,11 +393,26 @@ const formatPrivateKey = (key: string): string =>
 const isValidStakeAmount = (amount: string): boolean =>
   /^(?:\d+|\d*\.\d+)$/.test(amount.trim()) && Number(amount) > 0;
 
+const formatMiningDifficulty = (difficulty: bigint): string => {
+  const normalized = difficulty <= MAX_UINT256 ? MAX_UINT256 - difficulty : BigInt(0);
+  return normalized.toString();
+};
+
+const STAKE_PLAN_ROWS: StakePlanRow[] = [
+  { stake: "1,000 APLO", reward: "Base reward", multiplier: "1.0x", status: "Minimum to mine" },
+  { stake: "2,500 APLO", reward: "+25% reward", multiplier: "1.25x", status: "Recommended" },
+  { stake: "5,000 APLO", reward: "+50% reward", multiplier: "1.5x", status: "Power miner" },
+  { stake: "10,000 APLO", reward: "2x reward", multiplier: "2.0x", status: "Maximum tier" },
+];
+
 const WebMiner: React.FC = () => {
   const { toast } = useToast();
 
+  const [activeMode, setActiveMode] = useState<MinerMode>("current");
   const [walletAddress, setWalletAddress] = useState<string>("");
   const [privateKey, setPrivateKey] = useState<string>("");
+  const [isWalletConnecting, setIsWalletConnecting] = useState<boolean>(false);
+  const [aaSessionAddress, setAaSessionAddress] = useState<string>("");
   const [isMining, setIsMining] = useState<boolean>(false);
   const [minedShares, setMinedShares] = useState<MinedShare[]>([]);
   const [minerStats, setMinerStats] = useState<{
@@ -390,7 +420,7 @@ const WebMiner: React.FC = () => {
     totalMined: number;
     balance: string;
   }>({
-    difficulty: DEFAULT_DIFFICULTY.toString(),
+    difficulty: formatMiningDifficulty(DEFAULT_DIFFICULTY),
     totalMined: 0,
     balance: "0",
   });
@@ -442,6 +472,14 @@ const WebMiner: React.FC = () => {
         setCurrentRpcUrl(PRESET_RPC_NODES[0].url);
       }
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const savedSessionKey = localStorage.getItem("aaSessionPrivateKey");
+    if (!savedSessionKey) return;
+    const sessionAddress = getAddressFromPrivateKey(savedSessionKey);
+    if (sessionAddress) setAaSessionAddress(sessionAddress);
   }, []);
 
   // Initialize Web3 with current RPC URL
@@ -538,8 +576,7 @@ const WebMiner: React.FC = () => {
     return undefined;
   };
 
-  // Отправка транзакции
-  const sendMineTransaction = async (nonce: bigint) => {
+  const sendLegacyMineTransaction = async (nonce: bigint) => {
     if (!web3Ref.current || !contractRef.current)
       throw new Error("Not initialized");
     const web3 = web3Ref.current;
@@ -562,7 +599,6 @@ const WebMiner: React.FC = () => {
       nonce: latestNonce,
     };
 
-    // Добавляем 0x к приватному ключу, если его нет
     const formattedPrivateKey = formatPrivateKey(privateKey);
     const signedTx = await web3.eth.accounts.signTransaction(
       txData,
@@ -572,6 +608,69 @@ const WebMiner: React.FC = () => {
       throw new Error("Failed to sign transaction");
     return await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
   };
+
+  const getOrCreateAaSessionKey = () => {
+    if (!web3Ref.current) throw new Error("Web3 is not initialized");
+    if (typeof window === "undefined") throw new Error("Session keys are browser-only");
+
+    const saved = localStorage.getItem("aaSessionPrivateKey");
+    if (saved && validatePrivateKey(saved)) {
+      const address = getAddressFromPrivateKey(saved);
+      setAaSessionAddress(address);
+      return { privateKey: formatPrivateKey(saved), address };
+    }
+
+    const account = web3Ref.current.eth.accounts.create();
+    localStorage.setItem("aaSessionPrivateKey", account.privateKey);
+    setAaSessionAddress(account.address);
+    return { privateKey: account.privateKey, address: account.address };
+  };
+
+  const sendCurrentMineUserOperation = async (nonce: bigint) => {
+    if (!web3Ref.current || !contractRef.current)
+      throw new Error("Not initialized");
+    if (!AA_BUNDLER_URL) {
+      throw new Error(
+        "Account abstraction bundler is not configured. Set NEXT_PUBLIC_AA_BUNDLER_URL to mine in Current mode without MetaMask prompts."
+      );
+    }
+
+    const sessionKey = getOrCreateAaSessionKey();
+    const nonceHex = web3Ref.current.utils.padLeft(web3Ref.current.utils.toHex(nonce), 64);
+    const callData = contractRef.current.methods.mine(nonceHex).encodeABI();
+    const operation = {
+      sender: walletAddress,
+      sessionKey: sessionKey.address,
+      target: CONTRACT_ADDRESS,
+      callData,
+      nonce: Date.now().toString(),
+    };
+    const signature = web3Ref.current.eth.accounts.sign(
+      JSON.stringify(operation),
+      sessionKey.privateKey
+    ).signature;
+
+    const response = await fetch(AA_BUNDLER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...operation, signature }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`AA bundler rejected mining operation: ${response.status} ${await response.text()}`);
+    }
+
+    const result = await response.json();
+    return {
+      blockNumber: BigInt(result.blockNumber ?? 0),
+      transactionHash: result.transactionHash ?? result.userOperationHash ?? "AA user operation submitted",
+    };
+  };
+
+  const sendMineTransaction = (nonce: bigint) =>
+    activeMode === "legacy"
+      ? sendLegacyMineTransaction(nonce)
+      : sendCurrentMineUserOperation(nonce);
 
   const getStakeStatus = async () => {
     if (!web3Ref.current || !stakingContractRef.current || !walletAddress) {
@@ -602,12 +701,33 @@ const WebMiner: React.FC = () => {
     return status;
   };
 
+  const sendWalletTransaction = async (to: string, data: string, label: string) => {
+    if (!window.ethereum) {
+      throw new Error("Connect an EIP-1193 wallet such as MetaMask first");
+    }
+    const txHash = await window.ethereum.request({
+      method: "eth_sendTransaction",
+      params: [{ from: walletAddress, to, data }],
+    });
+    toast({ title: `${label} submitted`, description: txHash });
+    return txHash;
+  };
+
   const sendStakeTransaction = async (amountWei: bigint) => {
     if (!web3Ref.current || !stakingContractRef.current)
       throw new Error("Staking contract not initialized");
 
-    const web3 = web3Ref.current;
     const transaction = stakingContractRef.current.methods.stake(amountWei.toString());
+
+    if (activeMode === "current") {
+      return await sendWalletTransaction(
+        APLO_STAKING_ADDRESS,
+        transaction.encodeABI(),
+        "Stake transaction"
+      );
+    }
+
+    const web3 = web3Ref.current;
     const gasEstimate = await transaction.estimateGas({ from: walletAddress });
     const gasPrice = await web3.eth.getGasPrice();
     const latestNonce = await web3.eth.getTransactionCount(
@@ -630,6 +750,42 @@ const WebMiner: React.FC = () => {
     );
     if (!signedTx.rawTransaction)
       throw new Error("Failed to sign staking transaction");
+
+    return await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+  };
+
+  const sendUnstakeTransaction = async () => {
+    if (!web3Ref.current || !stakingContractRef.current)
+      throw new Error("Staking contract not initialized");
+
+    const transaction = stakingContractRef.current.methods.unstake();
+
+    if (activeMode === "current") {
+      return await sendWalletTransaction(
+        APLO_STAKING_ADDRESS,
+        transaction.encodeABI(),
+        "Unstake transaction"
+      );
+    }
+
+    const web3 = web3Ref.current;
+    const gasEstimate = await transaction.estimateGas({ from: walletAddress });
+    const gasPrice = await web3.eth.getGasPrice();
+    const latestNonce = await web3.eth.getTransactionCount(walletAddress, "pending");
+
+    const signedTx = await web3.eth.accounts.signTransaction(
+      {
+        from: walletAddress,
+        to: APLO_STAKING_ADDRESS,
+        data: transaction.encodeABI(),
+        gas: Number(gasEstimate) + 10000,
+        gasPrice,
+        nonce: latestNonce,
+      },
+      formatPrivateKey(privateKey)
+    );
+    if (!signedTx.rawTransaction)
+      throw new Error("Failed to sign unstaking transaction");
 
     return await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
   };
@@ -674,12 +830,12 @@ const WebMiner: React.FC = () => {
       toast({
         variant: "destructive",
         title: "No Wallet Address",
-        description: "Please enter a valid private key first",
+        description: activeMode === "legacy" ? "Please enter a valid private key first" : "Please connect a wallet first",
       });
       return;
     }
 
-    if (!privateKey || !validatePrivateKey(privateKey)) {
+    if (activeMode === "legacy" && (!privateKey || !validatePrivateKey(privateKey))) {
       toast({
         variant: "destructive",
         title: "Invalid Private Key",
@@ -748,6 +904,68 @@ const WebMiner: React.FC = () => {
     }
   };
 
+  const handleUnstake = async () => {
+    if (!walletAddress) {
+      toast({
+        variant: "destructive",
+        title: "No Wallet Address",
+        description: activeMode === "legacy" ? "Please enter a valid private key first" : "Please connect a wallet first",
+      });
+      return;
+    }
+
+    if (activeMode === "legacy" && (!privateKey || !validatePrivateKey(privateKey))) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Private Key",
+        description: "Private key must contain 64 hex characters with or without 0x prefix",
+      });
+      return;
+    }
+
+    setIsStaking(true);
+    try {
+      await sendUnstakeTransaction();
+      const updatedStatus = await getStakeStatus();
+      await updateMinerStats();
+      toast({
+        title: "Unstake submitted",
+        description: `Current stake: ${formatAplo(updatedStatus.staked)}`,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "An unknown error occurred during unstaking.";
+      toast({ variant: "destructive", title: "Unstaking Error", description: message });
+    } finally {
+      setIsStaking(false);
+    }
+  };
+
+  const connectWallet = async () => {
+    if (!window.ethereum) {
+      toast({
+        variant: "destructive",
+        title: "Wallet not found",
+        description: "Install MetaMask or another EIP-1193 wallet to use Current mode",
+      });
+      return;
+    }
+
+    setIsWalletConnecting(true);
+    try {
+      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+      const account = accounts?.[0];
+      if (!account) throw new Error("Wallet did not return an account");
+      setWalletAddress(account);
+      getOrCreateAaSessionKey();
+      toast({ title: "Wallet connected", description: account });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to connect wallet.";
+      toast({ variant: "destructive", title: "Wallet Error", description: message });
+    } finally {
+      setIsWalletConnecting(false);
+    }
+  };
+
   const updateMinerStats = async () => {
     if (!walletAddress || !web3Ref.current) return;
 
@@ -774,7 +992,7 @@ const WebMiner: React.FC = () => {
           const minerParams = await getMinerParams(walletAddress);
           // Обновить статистику
           setMinerStats((prev) => ({
-            difficulty: minerParams.currentDifficulty.toString(),
+            difficulty: formatMiningDifficulty(minerParams.currentDifficulty),
             totalMined: minerParams.totalMined,
             balance: prev.balance,
           }));
@@ -810,7 +1028,7 @@ const WebMiner: React.FC = () => {
           const updatedParams = await getMinerParams(walletAddress);
           setMinerStats((prev) => ({
             ...prev,
-            difficulty: updatedParams.currentDifficulty.toString(),
+            difficulty: formatMiningDifficulty(updatedParams.currentDifficulty),
             totalMined: updatedParams.totalMined,
           }));
 
@@ -841,11 +1059,11 @@ const WebMiner: React.FC = () => {
         toast({
           variant: "destructive",
           title: "No Wallet Address",
-          description: "Please enter a wallet address",
+          description: activeMode === "legacy" ? "Please enter a wallet address" : "Please connect a wallet",
         });
         return;
       }
-      if (!privateKey) {
+      if (activeMode === "legacy" && !privateKey) {
         toast({
           variant: "destructive",
           title: "No Private Key",
@@ -853,7 +1071,7 @@ const WebMiner: React.FC = () => {
         });
         return;
       }
-      if (!validatePrivateKey(privateKey)) {
+      if (activeMode === "legacy" && !validatePrivateKey(privateKey)) {
         toast({
           variant: "destructive",
           title: "Invalid Private Key",
@@ -904,6 +1122,20 @@ const WebMiner: React.FC = () => {
         statsIntervalRef.current = null;
       }
     }
+  };
+
+  const switchMode = (mode: MinerMode) => {
+    if (isMining) {
+      setIsMining(false);
+      miningRef.current = false;
+      if (statsIntervalRef.current) {
+        clearInterval(statsIntervalRef.current);
+        statsIntervalRef.current = null;
+      }
+    }
+    setActiveMode(mode);
+    setWalletAddress("");
+    if (mode === "current") setPrivateKey("");
   };
 
   // Handle RPC node change
@@ -1016,6 +1248,25 @@ const WebMiner: React.FC = () => {
           <CardTitle className="text-2xl font-bold flex flex-row justify-between"><span>GAplo Web Miner</span> <ThemeSwitcher/></CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-2 rounded-md border bg-muted/30 p-1">
+            <Button
+              type="button"
+              variant={activeMode === "current" ? "default" : "ghost"}
+              onClick={() => switchMode("current")}
+              disabled={isMining}
+            >
+              Current
+            </Button>
+            <Button
+              type="button"
+              variant={activeMode === "legacy" ? "default" : "ghost"}
+              onClick={() => switchMode("legacy")}
+              disabled={isMining}
+            >
+              Legacy
+            </Button>
+          </div>
+
           {/* RPC Node Selection */}
           <div className="space-y-3 rounded-md border p-4 bg-muted/50">
             <Label className="text-sm font-medium">RPC Node</Label>
@@ -1054,28 +1305,48 @@ const WebMiner: React.FC = () => {
             </p>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Private Key</label>
-            <Input
-              type="password"
-              placeholder="Enter your private key"
-              value={privateKey}
-              onChange={(e) => {
-                const newKey = e.target.value;
-                setPrivateKey(newKey);
-                if (validatePrivateKey(newKey)) {
-                  const address = getAddressFromPrivateKey(newKey);
-                  setWalletAddress(address);
-                }
-              }}
-              disabled={isMining}
-            />
-          </div>
+          {activeMode === "legacy" ? (
+            <div className="space-y-2 rounded-md border p-3">
+              <label className="text-sm font-medium">Private Key</label>
+              <Input
+                type="password"
+                placeholder="Enter your private key"
+                value={privateKey}
+                onChange={(e) => {
+                  const newKey = e.target.value;
+                  setPrivateKey(newKey);
+                  if (validatePrivateKey(newKey)) {
+                    const address = getAddressFromPrivateKey(newKey);
+                    setWalletAddress(address);
+                  }
+                }}
+                disabled={isMining}
+              />
+              <p className="text-xs text-yellow-600">Legacy mode keeps the old local private-key signing flow.</p>
+            </div>
+          ) : (
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium">Connected Wallet</p>
+                  <p className="text-xs text-muted-foreground">Private keys are not entered in Current mode. Stake/unstake uses wallet transaction signing; mining uses an AA session key + bundler.</p>
+                </div>
+                <Button type="button" onClick={connectWallet} disabled={isWalletConnecting || isMining || !isRpcReady}>
+                  <Wallet className="mr-2 h-4 w-4" />
+                  {walletAddress ? "Reconnect Wallet" : isWalletConnecting ? "Connecting..." : "Connect Wallet"}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">AA session key: <span className="font-mono">{aaSessionAddress || "created after wallet connect"}</span></p>
+              {!AA_BUNDLER_URL && (
+                <p className="text-xs text-yellow-600">Set NEXT_PUBLIC_AA_BUNDLER_URL to submit mined shares without repeated MetaMask prompts.</p>
+              )}
+            </div>
+          )}
 
           <div className="space-y-2">
             <label className="text-sm font-medium">Wallet Address</label>
             <Input
-              placeholder="Address will be generated automatically"
+              placeholder={activeMode === "legacy" ? "Address will be generated automatically" : "Connect wallet to fill address"}
               value={walletAddress}
               disabled={true}
             />
@@ -1118,7 +1389,31 @@ const WebMiner: React.FC = () => {
           </div>
 
           <div className="space-y-2 rounded-md border p-3">
-            <label className="text-sm font-medium">Stake APLO Amount</label>
+            <p className="text-sm font-medium">Stake → Reward table</p>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Stake</TableHead>
+                  <TableHead>Reward</TableHead>
+                  <TableHead>Multiplier</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {STAKE_PLAN_ROWS.map((row) => (
+                  <TableRow key={row.stake}>
+                    <TableCell>{row.stake}</TableCell>
+                    <TableCell>{row.reward}</TableCell>
+                    <TableCell>{row.multiplier}</TableCell>
+                    <TableCell>{row.status}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          <div className="space-y-2 rounded-md border p-3">
+            <label className="text-sm font-medium">Stake / Unstake APLO</label>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Input
                 type="number"
@@ -1132,7 +1427,7 @@ const WebMiner: React.FC = () => {
               <Button
                 type="button"
                 onClick={handleStake}
-                disabled={!walletAddress || !privateKey || isMining || isStaking || !stakeAmount || !isRpcReady}
+                disabled={!walletAddress || (activeMode === "legacy" && !privateKey) || isMining || isStaking || !stakeAmount || !isRpcReady}
               >
                 {isStaking ? (
                   <>
@@ -1141,6 +1436,14 @@ const WebMiner: React.FC = () => {
                 ) : (
                   "Stake APLO"
                 )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleUnstake}
+                disabled={!walletAddress || (activeMode === "legacy" && !privateKey) || isMining || isStaking || !isRpcReady}
+              >
+                Unstake
               </Button>
             </div>
             <p className="text-xs text-gray-500">
@@ -1152,7 +1455,7 @@ const WebMiner: React.FC = () => {
             className="w-full mt-4"
             onClick={toggleMining}
             variant={isMining ? "destructive" : "default"}
-            disabled={!walletAddress || !privateKey || isStaking || !isRpcReady}
+            disabled={!walletAddress || (activeMode === "legacy" && !privateKey) || isStaking || !isRpcReady}
           >
             {isStaking ? (
               <>
