@@ -19,7 +19,6 @@ const web3 = new Web3();
 let activeJobId = 0;
 let activeMessage: StartMiningMessage | null = null;
 let shouldMine = false;
-const HEARTBEAT_INTERVAL_MS = 1000;
 
 const randomNonce = (): bigint => {
   const bytes = new Uint8Array(32);
@@ -51,17 +50,17 @@ const hashNonce = (
   return BigInt("0x" + hash.slice(2));
 };
 
-const mineLoop = () => {
+const mineChunk = () => {
   if (!shouldMine || !activeMessage) return;
 
   const message = activeMessage;
   const difficulty = BigInt(message.difficulty);
   const prevHash = BigInt(message.prevHash);
   const totalMined = message.totalMined;
-  let lastHeartbeatAt = Date.now();
+  const chunkSize = 2500;
 
   try {
-    while (shouldMine && activeJobId === message.jobId) {
+    for (let i = 0; i < chunkSize; i += 1) {
       if (!shouldMine || activeJobId !== message.jobId) return;
 
       const nonce = randomNonce();
@@ -83,13 +82,10 @@ const mineLoop = () => {
         });
         return;
       }
-
-      const now = Date.now();
-      if (now - lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS) {
-        lastHeartbeatAt = now;
-        self.postMessage({ type: "heartbeat", jobId: message.jobId, at: now });
-      }
     }
+
+    self.postMessage({ type: "heartbeat", jobId: message.jobId, at: Date.now() });
+    setTimeout(mineChunk, 0);
   } catch (error) {
     shouldMine = false;
     self.postMessage({
@@ -113,5 +109,5 @@ self.onmessage = (event: MessageEvent<MiningMessage>) => {
   activeJobId = message.jobId;
   activeMessage = message;
   shouldMine = true;
-  mineLoop();
+  mineChunk();
 };
