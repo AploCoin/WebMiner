@@ -590,7 +590,7 @@ export const useWebMinerController = () => {
 
       toast({
         title: "Stake confirmed",
-        description: `Current multiplier: ${updatedStatus.multiplier.toFixed(1)}x`,
+        description: "Mining reward is unlocked. Reward amount is gas-based, not stake-based.",
       });
       await updateMinerStats();
       return updatedStatus;
@@ -661,7 +661,7 @@ export const useWebMinerController = () => {
 
       toast({
         title: "Stake confirmed",
-        description: `Current stake: ${formatAplo(updatedStatus.staked)} · Multiplier: ${updatedStatus.multiplier.toFixed(1)}x`,
+        description: `Current stake: ${formatAplo(updatedStatus.staked)} · mining reward unlocked`,
       });
     } catch (error: unknown) {
       const message =

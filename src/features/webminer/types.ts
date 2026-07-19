@@ -15,8 +15,8 @@ export type MinerMode = "current" | "legacy";
 
 export interface StakePlanRow {
   stake: string;
-  reward: string;
-  multiplier: string;
+  level: string;
+  rewardFormula: string;
   status: string;
 }
 
