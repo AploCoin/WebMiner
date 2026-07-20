@@ -15,10 +15,10 @@ jobs:
         
       # a standard step for GitHub actions on Node
       # https://github.com/actions/setup-node
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
-          # update the Node version to meet your needs
-          node-version: 18
+          # Next.js 16 and Tailwind CSS 4 require Node.js 20+
+          node-version: 20
           cache: npm
 
       - name: Build
