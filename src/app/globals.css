@@ -1,14 +1,10 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
+@import "tailwindcss";
+@config "../../tailwind.config.cjs";
 
 body {
-    background: hsl(var(--background));
-    overflow-x: hidden;
+  background: hsl(var(--background));
+  overflow-x: hidden;
 }
-
-
 
 @layer base {
   :root {
@@ -46,13 +42,13 @@ body {
     --card-foreground: 0 0% 85%;
     --popover: 223 47% 15%;
     --popover-foreground: 0 0% 85%;
-    --primary: 204 56% 45%; /* keeping #3380B3 as accent */
+    --primary: 204 56% 45%;
     --primary-foreground: 0 0% 100%;
     --secondary: 223 47% 15%;
     --secondary-foreground: 0 0% 85%;
     --muted: 223 47% 15%;
     --muted-foreground: 215 20% 65%;
-    --accent: 204 56% 45%; /* keeping #3380B3 as accent */
+    --accent: 204 56% 45%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 63% 31%;
     --destructive-foreground: 0 0% 100%;
@@ -65,15 +61,13 @@ body {
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
   }
-}
 
-
-
-@layer base {
   * {
-    @apply border-border;
-    }
+    border-color: hsl(var(--border));
+  }
+
   body {
-    @apply bg-background text-foreground;
-    }
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
 }
