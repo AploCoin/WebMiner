@@ -1,0 +1,1 @@
+(globalThis.TURBOPACK||(globalThis.TURBOPACK=[])).push(["object"==typeof document?document.currentScript:void 0,93380,t=>{t.q("/_next/static/media/miningWorker.37jqm_da0zen7.ts")}]);
