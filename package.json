@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
+    "test": "node --experimental-strip-types --test src/features/webminer/*.test.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

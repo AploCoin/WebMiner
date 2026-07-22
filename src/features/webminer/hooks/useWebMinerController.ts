@@ -18,6 +18,7 @@ import {
   PRESET_RPC_NODES,
 } from "../config";
 import type { Erc7715PermissionResponse, MinedShare, MinerMode, MinerParams, MiningWorkerMessage } from "../types";
+import { MINING_ELIGIBILITY_POLL_INTERVAL_MS } from "../miningTiming";
 import {
   formatAplo,
   formatMiningDifficulty,
@@ -786,7 +787,9 @@ export const useWebMinerController = () => {
             "getBlockNumber RPC"
           );
           if (BigInt(currentBlock) - BigInt(minerParams.lastBlock) < BigInt(20)) {
-            await new Promise((resolve) => setTimeout(resolve, 10000));
+            await new Promise((resolve) =>
+              setTimeout(resolve, MINING_ELIGIBILITY_POLL_INTERVAL_MS)
+            );
             continue;
           }
 
