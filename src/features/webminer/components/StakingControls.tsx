@@ -23,7 +23,7 @@ export function StakingControls({ activeMode, walletAddress, privateKey, stakeAm
   const walletBlocked = !walletAddress || (activeMode === "legacy" && !privateKey);
   return (
     <div className="space-y-2 rounded-md border p-3">
-      <label className="text-sm font-medium">Stake / Unstake APLO</label>
+      <p className="text-sm font-medium">Stake / Unstake APLO</p>
       <div className="flex flex-col gap-2 sm:flex-row">
         <Input type="number" min="0" step="0.000000000000000001" placeholder={`Minimum ${MIN_STAKE_APLO} APLO to mine`} value={stakeAmount} onChange={(e) => onStakeAmountChange(e.target.value)} disabled={isMining || isStaking} />
         <Button type="button" onClick={onStake} disabled={walletBlocked || isMining || isStaking || !stakeAmount || !isRpcReady}>
