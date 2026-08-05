@@ -99,12 +99,13 @@ docker rm aplo-webminer
 
 ## Usage
 
-1. Select **Pub1**, **Pub2**, or **Custom RPC URL**.
-2. If using a custom node, enter a valid HTTP/HTTPS RPC endpoint.
-3. Enter a private key. The wallet address is derived automatically in the browser.
-4. Stake APLO if the wallet has less than the required minimum stake.
-5. Click **Start Mining**.
-6. Watch stats and mined shares in the log table.
+Use the mini navigation to open the required workflow:
+
+- **Miner** (`/`) — connect an EIP-1193 wallet and mine GAPLO. Each ready share is submitted through the wallet with `eth_sendTransaction` until the chain's custom permission protocol is available.
+- **Staking** (`/staking`) — connect the wallet, stake or unstake APLO, and review the staking eligibility and reward-rule table.
+- **Legacy** (`/legacy`) — use the separate local private-key signing flow for a dedicated mining wallet.
+
+All three pages share the selected RPC node setting. Current wallet mode never asks for a private key.
 
 ## Security notes
 

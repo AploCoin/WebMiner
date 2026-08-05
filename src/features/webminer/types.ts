@@ -32,14 +32,6 @@ export type MiningWorkerMessage =
   | { type: "heartbeat"; jobId: number; at: number }
   | { type: "error"; jobId: number; message: string };
 
-export interface Erc7715PermissionResponse {
-  chainId: string;
-  from: string;
-  to: string;
-  context: string;
-  delegationManager: string;
-  dependencies?: { factory?: string; factoryData?: string }[];
-}
 
 export interface EthereumProvider {
   request: (args: { method: string; params?: unknown[] }) => Promise<any>;

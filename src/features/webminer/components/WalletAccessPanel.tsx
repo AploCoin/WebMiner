@@ -10,24 +10,22 @@ interface WalletAccessPanelProps {
   activeMode: MinerMode;
   privateKey: string;
   walletAddress: string;
-  aaSessionAddress: string;
-  hasErc7715Permission: boolean;
   isWalletConnecting: boolean;
   isMining: boolean;
   isRpcReady: boolean;
   onPrivateKeyChange: (key: string) => void;
   onWalletAddressChange: (address: string) => void;
   onConnectWallet: () => void;
-  onRequestPermission: () => void;
 }
 
-export function WalletAccessPanel({ activeMode, privateKey, walletAddress, aaSessionAddress, hasErc7715Permission, isWalletConnecting, isMining, isRpcReady, onPrivateKeyChange, onWalletAddressChange, onConnectWallet, onRequestPermission }: WalletAccessPanelProps) {
+export function WalletAccessPanel({ activeMode, privateKey, walletAddress, isWalletConnecting, isMining, isRpcReady, onPrivateKeyChange, onWalletAddressChange, onConnectWallet }: WalletAccessPanelProps) {
   return (
     <>
       {activeMode === "legacy" ? (
         <div className="space-y-2 rounded-md border p-3">
-          <label className="text-sm font-medium">Private Key</label>
+          <label htmlFor="legacy-private-key" className="text-sm font-medium">Private Key</label>
           <Input
+            id="legacy-private-key"
             type="password"
             placeholder="Enter your private key"
             value={privateKey}
@@ -47,20 +45,11 @@ export function WalletAccessPanel({ activeMode, privateKey, walletAddress, aaSes
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium">Connected Wallet</p>
-              <p className="text-xs text-muted-foreground">Private keys are not entered in Current mode. Stake/unstake uses wallet transaction signing; mining uses an ERC-7715 session permission when the wallet supports it.</p>
+              <p className="text-xs text-muted-foreground">Transactions are submitted through the connected wallet. The wallet asks for confirmation when a share is ready.</p>
             </div>
             <Button type="button" onClick={onConnectWallet} disabled={isWalletConnecting || isMining || !isRpcReady}>
               <Wallet className="mr-2 h-4 w-4" />
               {walletAddress ? "Reconnect Wallet" : isWalletConnecting ? "Connecting..." : "Connect Wallet"}
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">ERC-7715 session key: <span className="font-mono">{aaSessionAddress || "created after wallet connect"}</span></p>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className={hasErc7715Permission ? "text-xs text-green-600" : "text-xs text-yellow-600"}>
-              {hasErc7715Permission ? "ERC-7715 mining permission is stored for automatic background submissions." : "Grant one ERC-7715 permission so Current mining can submit shares without repeated wallet popups."}
-            </p>
-            <Button type="button" variant="outline" onClick={onRequestPermission} disabled={!walletAddress || isMining || !isRpcReady}>
-              Grant ERC-7715 Permission
             </Button>
           </div>
         </div>
