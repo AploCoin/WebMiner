@@ -1,0 +1,17 @@
+{
+  "source": "AploCoin/AploNode@4d3d3f8c63fb314ec23d7369f687033cdf26ac93",
+  "rpc": "http://127.0.0.1:18545",
+  "chainId": "1337",
+  "owner": "0xF5af7ceeE8eB1FF82DFB69755c374bbED6f1B700",
+  "session": "0x9e259C88FBc0AF46aF373Dc64216D803F1392Af3",
+  "registrationHash": "0x6bab6e9f662bb557ed983648e558ae7641b364ed08cfba07559677a1c7aa02c8",
+  "registrationOwner": "0xf5af7ceee8eb1ff82dfb69755c374bbed6f1b700",
+  "miningHash": "0x9ec320569af08fd9d069a8501d837216dbcd7d6b89cc90a0088dd58a96e0f764",
+  "miningStatus": "1",
+  "signer": "0x9e259c88fbc0af46af373dc64216d803f1392af3",
+  "miningNonce": "0",
+  "revokeHash": "0x0687fe0f17b54008767d855059d3460c09ae33ca6b7fa36c56173ecb2388d074",
+  "revokeStatus": "1",
+  "ownerWalletTransactions": 2,
+  "sessionPrivateKeyPersisted": false
+}

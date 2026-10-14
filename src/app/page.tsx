@@ -5,7 +5,7 @@ import { ArrowUpRight, Coins, KeyRound, Pickaxe } from "lucide-react";
 import { PageFrame } from "@/features/webminer/components/PageFrame";
 
 const destinations = [
-  { href: "/mining", title: "Wallet Mining", icon: Pickaxe, description: "Connect your wallet to mine GAPLO. Confirm each transaction when a share is ready.", action: "Open Miner" },
+  { href: "/mining", title: "Wallet Mining", icon: Pickaxe, description: "Connect your wallet and authorize temporary mining access. Shares are signed automatically.", action: "Open Miner" },
   { href: "/legacy", title: "Legacy Mining", icon: KeyRound, description: "Enter a dedicated mining wallet’s private key. Shares are signed locally in your browser.", action: "Open Legacy" },
   { href: "/staking", title: "APLO Staking", icon: Coins, description: "Manage your APLO stake and check the requirements to unlock mining rewards.", action: "Open Staking" },
 ];
