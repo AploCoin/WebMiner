@@ -7,7 +7,7 @@ import type { MinerClient } from "../services/client";
 import { runMining } from "../services/mining";
 import { ensureMinimumStake } from "../services/staking";
 
-export function useMining(client: MinerClient | null, address: string, send: SendTransaction | null, refresh: () => Promise<void>) {
+export function useMining(client: MinerClient | null, address: string, send: SendTransaction | null, refresh: () => Promise<void>, prepare?: (signal: AbortSignal) => Promise<void>, rpcCaller = address) {
   const { toast } = useToast();
   const sessionRef = useRef<AbortController | null>(null);
   const [isMining, setIsMining] = useState(false);
@@ -36,12 +36,13 @@ export function useMining(client: MinerClient | null, address: string, send: Sen
     setIsMining(true);
     setIsStarting(true);
     try {
-      await ensureMinimumStake(client, address, send, session.signal);
+      if (prepare) await prepare(session.signal);
+      else await ensureMinimumStake(client, address, send, session.signal);
       session.signal.throwIfAborted();
       setIsStarting(false);
       await refresh();
       await runMining({
-        client, address, send, signal: session.signal, onRefresh: refresh,
+        client, address, rpcCaller, send, signal: session.signal, onRefresh: refresh,
         onShare: (share) => setShares((prev) => ({ address, entries: [share, ...(prev.address === address ? prev.entries : [])] })),
       });
     } catch (error) {

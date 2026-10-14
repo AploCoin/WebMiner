@@ -35,15 +35,16 @@ export function findMiningNonce(address: string, params: MinerParams, signal: Ab
 interface MiningSession {
   client: MinerClient;
   address: string;
+  rpcCaller?: string;
   send: SendTransaction;
   signal: AbortSignal;
   onShare: (share: MinedShare) => void;
   onRefresh: () => Promise<void>;
 }
 
-export async function runMining({ client, address, send, signal, onShare, onRefresh }: MiningSession) {
+export async function runMining({ client, address, rpcCaller, send, signal, onShare, onRefresh }: MiningSession) {
   while (!signal.aborted) {
-    const params = await client.getMinerParams(address);
+    const params = await client.getMinerParams(address, rpcCaller);
     const block = await withTimeout(client.web3.eth.getBlockNumber(), 15000, "Block number RPC");
     signal.throwIfAborted();
     if (block - params.lastBlock < BigInt(20)) {

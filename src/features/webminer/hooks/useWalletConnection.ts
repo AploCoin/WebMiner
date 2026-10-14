@@ -47,5 +47,5 @@ export function useWalletConnection(client: MinerClient | null) {
     }
   };
 
-  return { walletAddress: connection?.address || "", isWalletConnecting, connectWallet, sendTransaction };
+  return { walletAddress: connection?.address || "", provider: connection?.provider || null, isWalletConnecting, connectWallet, sendTransaction };
 }

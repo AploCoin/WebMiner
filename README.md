@@ -7,13 +7,15 @@ Browser-based GAplo/APLO miner built with Next.js, TypeScript, Web3.js and Tailw
 | Route | Workflow |
 | --- | --- |
 | `/` | Navigation to wallet mining, legacy mining, and APLO staking. No wallet connection or mining process is started here. |
-| `/mining` | Connect an EIP-1193 wallet and confirm each ready mining share in the wallet. |
+| `/mining` | Connect an EIP-1193 wallet, authorize a native mining session, and submit shares automatically. |
 | `/legacy` | Manually enter a dedicated mining wallet’s private key and sign mining transactions locally. |
 | `/staking` | Connect a wallet, stake or unstake APLO, and review mining eligibility and reward rules. |
 
 Mining requires at least **1,000 APLO** staked. Starting either miner preserves the existing behavior of staking the missing amount first and waiting for confirmation. Stake can also be managed separately on `/staking`.
 
-There is no delegation or session-key flow. Wallet transactions use `eth_sendTransaction`; legacy transactions use local signing and `eth_sendRawTransaction`.
+Current mining uses AploNode’s native session-key registry at `0x1237`. The owner wallet confirms registration (and any required stake); an in-memory session key then signs only GAplo `mine(bytes32)` calls. Its native APLO allowance is zero, with a user-selected GAPLO fee budget and block expiry. Revoke access through the owner wallet. Legacy mining continues using the manually entered key. Both mining paths use the same loop and worker.
+
+The selected RPC must support native session keys. An unsupported node disables authorization; there is no direct-wallet mining fallback or ERC-7715/7702 flow. See [native session-key integration](docs/session-keys.md) for protocol details, lifecycle, and verification.
 
 ## Code structure
 
@@ -32,8 +34,13 @@ src/features/webminer/
     useAccountStats.ts           Balance, mining parameters, and stake polling
     useMining.ts                 Shared start/stop lifecycle and share logs
     useStaking.ts                Stake/unstake actions and confirmation state
+  session-keys/
+    protocol.ts                  Native ABI, exact possession proof, scoped signer
+    useSessionKey.ts             Authorization, polling, revocation, recovery
+    storage.ts                   Public metadata only; no private keys
+    SessionKeyPanel.tsx          Mining access controls and limits
   services/
-    client.ts                    Contract instances and typed RPC reads
+    client.ts                    Typed RPC reads, default target, receipt polling
     mining.ts                    Shared worker orchestration and mining loop
     staking.ts                   Stake/unstake transactions and minimum stake
     transactions.ts              Wallet/local signing and receipt confirmation
@@ -42,11 +49,11 @@ src/workers/miningWorker.ts      Shared proof-of-work computation
 
 Current and legacy miners are separate components. Both use the same mining hook, loop, worker, and staking services; each supplies its own transaction signer. `PageFrame` contains only shared layout and navigation.
 
-Stopping mining or leaving the page terminates worker computation and prevents subsequent submissions. A transaction already submitted cannot be cancelled: its receipt is observed before the same page allows another start. Wallet rejection or an RPC/transaction error stops the mining session without automatically requesting another transaction. Account or network changes disconnect the current wallet and cancel its active session.
+Stopping mining or leaving the page terminates worker computation and prevents subsequent submissions. A transaction already submitted cannot be cancelled: its receipt is observed before the same page allows another start. Wallet rejection cancels authorization or staking. An RPC/transaction error stops the mining session without automatic resubmission. Account or network changes disconnect the current wallet and cancel its active session.
 
 ## Screenshots
 
-Captured from the production static export in Chromium, with an empty key and no connected wallet. These are interface screenshots, not evidence of live-chain mining. Desktop viewport: 1440 × 1080; mobile viewport: 390 × 844, full-page captures.
+The navigation/current screenshots were refreshed for native session keys; legacy/staking screenshots are retained from the base refactor. The idle pages are captured from the production static export in Chromium with no connected wallet. Idle captures show the UI only; the two labeled native-devnet captures show the isolated chain verification. Desktop viewport: 1440 × 1080; mobile viewport: 390 × 844, full-page captures.
 
 ### Navigation home
 
@@ -55,6 +62,11 @@ Captured from the production static export in Chromium, with an empty key and no
 ### Current wallet miner
 
 ![Current wallet miner](docs/screenshots/current-miner-desktop.png)
+
+### Native access and a session-signed share (isolated devnet)
+
+![Authorized native mining access](docs/screenshots/session-access-desktop.png)
+![Session-signed mining on local AploNode](docs/screenshots/session-mining-desktop.png)
 
 ### Legacy private-key miner
 
@@ -108,7 +120,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-The build uses Next.js static export and writes `out/`. Browser tests serve this production output with `scripts/serve-export.mjs`, so build before running them. Mining/staking browser tests use a synthetic test account and intercepted RPC/wallet responses; they compute shares with the actual Web Worker and exercise wallet and local transaction signing without sending live transactions.
+The build uses Next.js static export and writes `out/`. Browser tests serve this production output with `scripts/serve-export.mjs`, so build before running them. The default browser tests use synthetic accounts and intercepted RPC/wallet responses. The optional native devnet test registers a real session, computes a share with the same Web Worker, broadcasts its protected transaction to an isolated local AploNode, and revokes the session. See `docs/session-keys.md` for the devnet command and recorded receipts.
 
 To refresh screenshots after building:
 
@@ -122,7 +134,9 @@ If the environment blocks Turbopack’s internal process/port, the supported alt
 
 - The legacy private key stays in component memory. It is not saved in browser storage or sent to the RPC node.
 - Leaving the legacy page clears the key; use a dedicated mining wallet with limited funds.
-- Selected RPC settings and the theme are the only persisted preferences.
+- Session private keys stay only in page memory and are discarded on reload/navigation or a wallet/RPC change. Public session addresses, limits and registration hashes are saved by owner and chain so access can still be revoked after a reload.
+- Selected RPC settings and the theme are also persisted.
+- After reloading the current miner, reconnect the owner wallet, revoke the previous active session (or clear it after expiry), and authorize a fresh key.
 - Both mining flows need sufficient balance for staking and gas.
 
 ## Contract addresses

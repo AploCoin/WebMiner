@@ -34,15 +34,18 @@ interface WalletTransactionOptions<T extends TransactionReceipt> {
   delay?: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
   pollIntervalMs?: number;
   timeoutMs?: number;
+  onSubmitted?: (hash: string) => void;
 }
 
 export async function submitWalletTransaction<T extends TransactionReceipt>({
   provider, from, to, data, waitForReceipt, signal,
   delay: wait = delay, pollIntervalMs = 1000, timeoutMs = 120000,
+  onSubmitted,
 }: WalletTransactionOptions<T>): Promise<T> {
   signal?.throwIfAborted();
   const hash = await provider.request({ method: "eth_sendTransaction", params: [{ from, to, data }] });
   if (typeof hash !== "string" || !hash) throw new Error("Wallet did not return a transaction hash");
+  onSubmitted?.(hash);
 
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
@@ -55,7 +58,7 @@ export async function submitWalletTransaction<T extends TransactionReceipt>({
   throw new Error(`Timed out waiting for transaction ${hash}. Check its status before trying again.`);
 }
 
-export function createWalletSender(client: MinerClient, provider: EthereumProvider, address: string): SendTransaction {
+export function createWalletSender(client: MinerClient, provider: EthereumProvider, address: string, onSubmitted?: (hash: string) => void): SendTransaction {
   return async (to, data, signal) => {
     const [walletChain, rpcChain] = await Promise.all([
       provider.request({ method: "eth_chainId" }),
@@ -66,13 +69,18 @@ export function createWalletSender(client: MinerClient, provider: EthereumProvid
     }
     signal?.throwIfAborted();
     return submitWalletTransaction({
-      provider, from: address, to, data, signal,
-      waitForReceipt: (hash) => client.web3.eth.getTransactionReceipt(hash),
+      provider, from: address, to, data, signal, onSubmitted,
+      waitForReceipt: (hash) => client.getTransactionReceipt(hash),
     });
   };
 }
 
-export function createPrivateKeySender(client: MinerClient, privateKey: string): SendTransaction {
+export interface PreparedTransaction {
+  from: string; to: string; data: string;
+  gas: bigint; gasPrice: bigint; nonce: bigint; chainId: bigint;
+}
+
+export function createPrivateKeySender(client: MinerClient, privateKey: string, beforeSign?: (tx: PreparedTransaction) => Promise<void>): SendTransaction {
   const account = client.web3.eth.accounts.privateKeyToAccount(formatPrivateKey(privateKey));
   return async (to, data, signal) => {
     const web3 = client.web3;
@@ -82,7 +90,10 @@ export function createPrivateKeySender(client: MinerClient, privateKey: string):
       web3.eth.getTransactionCount(account.address, "pending"), web3.eth.getChainId(),
     ]), 15000, "Transaction preparation RPC");
     signal?.throwIfAborted();
-    const signed = await account.signTransaction({ ...transaction, gas: gas + BigInt(10000), gasPrice, nonce, chainId });
+    const prepared = { ...transaction, gas: gas + BigInt(10000), gasPrice, nonce, chainId };
+    await beforeSign?.(prepared);
+    signal?.throwIfAborted();
+    const signed = await account.signTransaction({ ...prepared, value: BigInt(0), type: 0 });
     signal?.throwIfAborted();
     const receipt = await web3.eth.sendSignedTransaction(signed.rawTransaction);
     return requireSuccessfulReceipt({
