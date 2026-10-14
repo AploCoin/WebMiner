@@ -2,22 +2,16 @@
 
 import { PlayCircle, StopCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { MinerMode } from "../types";
 
-interface MiningToggleProps {
-  activeMode: MinerMode;
-  walletAddress: string;
-  privateKey: string;
-  isMining: boolean;
-  isStaking: boolean;
-  isRpcReady: boolean;
-  onToggleMining: () => void;
-}
-
-export function MiningToggle({ activeMode, walletAddress, privateKey, isMining, isStaking, isRpcReady, onToggleMining }: MiningToggleProps) {
+export function MiningToggle({ canStart, isMining, isStarting, isStopping, onToggleMining }: {
+  canStart: boolean; isMining: boolean; isStarting: boolean; isStopping: boolean; onToggleMining: () => void;
+}) {
   return (
-    <Button className="w-full mt-4" onClick={onToggleMining} variant={isMining ? "destructive" : "default"} disabled={!walletAddress || (activeMode === "legacy" && !privateKey) || isStaking || !isRpcReady}>
-      {isStaking ? <><PlayCircle className="mr-2 h-4 w-4 animate-spin" /> Staking...</> : isMining ? <><StopCircle className="mr-2 h-4 w-4" /> Stop Mining</> : <><PlayCircle className="mr-2 h-4 w-4" /> Start Mining</>}
-    </Button>
+    <div className="space-y-2">
+      <Button className="w-full" onClick={onToggleMining} variant={isMining ? "destructive" : "default"} disabled={isStopping || (!isMining && !canStart)}>
+        {isStopping ? "Stopping..." : isMining ? <><StopCircle className="mr-2 h-4 w-4" />{isStarting ? "Cancel Mining Start" : "Stop Mining"}</> : <><PlayCircle className="mr-2 h-4 w-4" />Start Mining</>}
+      </Button>
+      <p className="text-xs text-muted-foreground">Starting mining stakes any missing APLO to reach the 1,000 APLO minimum. Submitted transactions continue even if you stop mining.</p>
+    </div>
   );
 }
