@@ -1,11 +1,5 @@
-"use client";
-
-import { WebMinerShell } from "@/features/webminer/components/WebMinerShell";
+import { LegacyMiner } from "@/features/webminer/pages/LegacyMiner";
 
 export default function LegacyPage() {
-  return (
-    <main className="min-h-screen w-full bg-background">
-      <WebMinerShell surface="legacy" />
-    </main>
-  );
+  return <LegacyMiner />;
 }

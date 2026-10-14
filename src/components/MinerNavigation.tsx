@@ -1,18 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { Pickaxe, ShieldCheck, Coins } from "lucide-react";
+import { Pickaxe, ShieldCheck, Coins, House } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const destinations = [
-  { href: "/", label: "Miner", icon: Pickaxe },
+  { href: "/", label: "Home", icon: House },
+  { href: "/mining", label: "Miner", icon: Pickaxe },
   { href: "/staking", label: "Staking", icon: Coins },
   { href: "/legacy", label: "Legacy", icon: ShieldCheck },
 ];
 
 export function MinerNavigation({ activePath }: { activePath: string }) {
   return (
-    <nav aria-label="Miner navigation" className="inline-flex w-full gap-1 rounded-lg border bg-muted/40 p-1 sm:w-auto">
+    <nav aria-label="Miner navigation" className="grid w-full grid-cols-2 gap-1 rounded-lg border bg-muted/40 p-1 sm:inline-flex sm:w-auto">
       {destinations.map(({ href, label, icon: Icon }) => {
         const active = activePath === href;
         return (

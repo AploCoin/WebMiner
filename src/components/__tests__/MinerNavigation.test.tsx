@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { MinerNavigation } from "../MinerNavigation";
 
 const items = [
-  ["Miner", "/"],
+  ["Home", "/"],
+  ["Miner", "/mining"],
   ["Staking", "/staking"],
   ["Legacy", "/legacy"],
 ] as const;

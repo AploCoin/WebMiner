@@ -1,11 +1,5 @@
-"use client";
-
-import { WebMinerShell } from "@/features/webminer/components/WebMinerShell";
+import { Staking } from "@/features/webminer/pages/Staking";
 
 export default function StakingPage() {
-  return (
-    <main className="min-h-screen w-full bg-background">
-      <WebMinerShell surface="staking" />
-    </main>
-  );
+  return <Staking />;
 }

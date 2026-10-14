@@ -1,5 +1,5 @@
 export interface MinerParams {
-  lastBlock: number;
+  lastBlock: bigint;
   currentDifficulty: bigint;
   totalMined: number;
   prevHash: bigint;
@@ -11,7 +11,23 @@ export interface MinedShare {
   timestamp: string;
 }
 
-export type MinerMode = "current" | "legacy";
+export interface MinerStats {
+  difficulty: string;
+  totalMined: number;
+  balance: string;
+}
+
+export interface TransactionReceipt {
+  blockNumber: bigint | number | string;
+  transactionHash: string;
+  status: bigint | number | string | boolean;
+}
+
+export type SendTransaction = (
+  to: string,
+  data: string,
+  signal?: AbortSignal,
+) => Promise<TransactionReceipt>;
 
 export interface StakePlanRow {
   stake: string;
@@ -34,9 +50,9 @@ export type MiningWorkerMessage =
 
 
 export interface EthereumProvider {
-  request: (args: { method: string; params?: unknown[] }) => Promise<any>;
-  on?: (event: string, handler: (...args: any[]) => void) => void;
-  removeListener?: (event: string, handler: (...args: any[]) => void) => void;
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+  on?: (event: string, handler: (...args: unknown[]) => void) => void;
+  removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
 }
 
 declare global {

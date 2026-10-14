@@ -40,7 +40,7 @@ export const APLO_STAKING_ABI = [
     stateMutability: "view",
     type: "function",
   },
-];
+] as const;
 
 
 export const CONTRACT_ABI = [
@@ -263,7 +263,7 @@ export const CONTRACT_ABI = [
     stateMutability: "nonpayable",
     type: "function",
   },
-];
+] as const;
 
 export const DEFAULT_DIFFICULTY = BigInt(
   "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
