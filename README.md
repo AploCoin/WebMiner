@@ -174,3 +174,18 @@ Staking statistics do not request mining metadata.
 `e2e/staking-wallet.spec.ts` covers provider-only reads, wrong chains, explicit
 switch/add, wallet rejection, account/network/disconnect events, and pending
 receipts. These browser tests use an EIP-1193 harness, not a real wallet extension.
+
+### APLO and GAPLO wallet labels
+
+The wallet network metadata uses **GAPLO**, matching the historical official
+[network-add configuration](https://github.com/AploCoin/mainsite/blob/f1852edb8bc4983099ae50a0b6c193bc46e5bee2/src/components/navigation/DesktopNavigation.tsx#L28)
+and [two-asset description](https://github.com/AploCoin/mainsite/blob/f1852edb8bc4983099ae50a0b6c193bc46e5bee2/messages/en.json#L188).
+AploNode's `eth_getBalance` exposes GAPLO and transaction fees are paid in GAPLO.
+Transaction `value`, the APLO builtin at `0x1235`, and staking use APLO. This label
+correction changes no node balances, gas economics or transfer semantics.
+
+A generic wallet has only one `nativeCurrency` label. Its native-send form may
+therefore display GAPLO while submitting `value`, which transfers APLO on this
+network. Correct metadata does not establish universal native-send compatibility.
+Actual extension display/signing and native-send behavior require separate tests;
+EIP-1193 adapters and localhost native integration are not extension tests.

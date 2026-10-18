@@ -1,7 +1,8 @@
-// AploNode params.MainnetChainConfig. Wallet switching is always user initiated.
+// Chain ID: AploNode params.MainnetChainConfig. Wallet switching is user initiated.
+// eth_getBalance and gas use GAPLO; APLO remains transaction value/staking.
 export const APLO_CHAIN = {
   chainId: "0x6e7a", chainName: "AploCoin",
-  nativeCurrency: { name: "APLO", symbol: "APLO", decimals: 18 },
+  nativeCurrency: { name: "GAPLO", symbol: "GAPLO", decimals: 18 },
   rpcUrls: ["https://pub1.aplocoin.com", "https://pub2.aplocoin.com"],
 };
 
