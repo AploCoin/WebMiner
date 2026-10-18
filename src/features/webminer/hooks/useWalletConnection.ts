@@ -83,8 +83,8 @@ export function useWalletConnection(rpcClient: MinerClient | null, walletDriven 
     if (connecting.current) return;
     connecting.current = true; setIsWalletConnecting(true); setNetworkError("");
     try {
-      if (!window.ethereum) throw new Error("Connect a wallet first");
-      await switchToAplo(window.ethereum);
+      if (!connection?.provider) throw new Error("Connect a wallet first");
+      await switchToAplo(connection.provider);
       setConnection(null); setNetworkError("AploCoin selected. Reconnect your wallet to continue.");
     } catch (cause) { setNetworkError(cause instanceof Error ? cause.message : "Wallet refused the network change. Select AploCoin manually."); }
     finally { connecting.current = false; setIsWalletConnecting(false); }
