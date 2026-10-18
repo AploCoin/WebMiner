@@ -78,7 +78,7 @@ Captured from the production static export in Chromium, with an empty key and no
 
 ## RPC node configuration
 
-All workflow pages reuse the saved RPC selection:
+Current and legacy mining reuse the saved RPC selection; staking uses the wallet provider:
 
 | Option | URL |
 | --- | --- |
