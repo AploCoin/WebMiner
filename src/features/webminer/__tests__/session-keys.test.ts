@@ -43,3 +43,23 @@ describe("native session key protocol", () => {
     expect(call).not.toHaveBeenCalled();
   });
 });
+
+
+it("rejects a budget below intrinsic gas before estimateGas or signing", async () => {
+  const encoded = client.web3.eth.abi.encodeParameters(
+    ["address", "address", "uint256", "uint256", "uint256", "uint256"],
+    [vector.owner, vector.target, "0", "1", "0", vector.expiry],
+  );
+  const local = createMinerClient({ request: async ({ method }) => {
+    if (method === "eth_call") return encoded;
+    throw new Error(`Unexpected RPC ${method}`);
+  } });
+  vi.spyOn(local.web3.eth, "getBlockNumber").mockResolvedValue(BigInt(200));
+  vi.spyOn(local.web3.eth, "getChainId").mockResolvedValue(BigInt(vector.chainId));
+  vi.spyOn(local.web3.eth, "getGasPrice").mockResolvedValue(BigInt(1));
+  const estimate = vi.spyOn(local.web3.eth, "estimateGas");
+  const broadcast = vi.spyOn(local.web3.eth, "sendSignedTransaction");
+  await expect(createSessionSender(local, { ...record, budgetWei: "1" }, `0x${"2".repeat(64)}`)(vector.target, `${vector.selector}${"0".repeat(64)}`)).rejects.toThrow("Session gas budget cannot cover");
+  expect(estimate).not.toHaveBeenCalled();
+  expect(broadcast).not.toHaveBeenCalled();
+});

@@ -1,0 +1,13 @@
+{
+  "rpc": "http://127.0.0.1:18645",
+  "expired": "0xF96f3Dbf56101c8108a08280bbd2033648015a85",
+  "revoked": "0x63CF5d78Fe7FF1C37883df92b12483048764505F",
+  "insufficientBudget": "0x4C9C0C10eE9aC992Cedd0589Bb317cF972c68349",
+  "rejectedSessionPendingNonces": [
+    "0",
+    "0",
+    "0"
+  ],
+  "signing": "real local session keys with protocol guards",
+  "owner": "unlocked synthetic dev faucet"
+}

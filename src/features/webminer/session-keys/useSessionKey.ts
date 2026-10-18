@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EthereumProvider } from "../types";
 import type { MinerClient } from "../services/client";
-import { createWalletSender, requireSuccessfulReceipt } from "../services/transactions";
+import { createWalletSender, requireSuccessfulReceipt, SubmittedTransactionError } from "../services/transactions";
 import { withTimeout } from "../utils";
 import {
   assertSession, createSessionSender, DEFAULT_SESSION_BLOCKS, DEFAULT_SESSION_BUDGET,
@@ -32,7 +32,7 @@ export function useSessionKey(client: MinerClient | null, owner: string, provide
 
   useEffect(() => {
     const context = ++contextRef.current;
-    setChainId(""); setRecord(null); setPrivateKey(null); setView(null); setError(""); setBusy(null);
+    setChainId(""); setRecord(null); setPrivateKey(null); setView(null); setError("");
     if (client && owner && provider) {
       setLoading(true);
       void withTimeout(client.web3.eth.getChainId(), 15000, "Chain ID RPC").then((id) => {
@@ -43,7 +43,7 @@ export function useSessionKey(client: MinerClient | null, owner: string, provide
         if (contextRef.current === context) setError(cause instanceof Error ? cause.message : "Cannot read the selected chain");
       }).finally(() => { if (contextRef.current === context) setLoading(false); });
     } else setLoading(false);
-    return () => { contextRef.current = context + 1; operationRef.current?.abort(); operationRef.current = null; };
+    return () => { contextRef.current = context + 1; operationRef.current?.abort(); };
   }, [client, owner, provider]);
 
   const refresh = useCallback(async (isActive: () => boolean = () => true) => {
@@ -87,13 +87,14 @@ export function useSessionKey(client: MinerClient | null, owner: string, provide
     operationRef.current = operation;
     setBusy("authorize"); setError("");
     let submitted = false;
+    let submittedHash = "";
     try {
       const prepared = await prepareRegistration(client, owner, budget, lifetime);
       if (prepared.record.chainId !== chainId) throw new Error("RPC chain changed. Reconnect before authorizing.");
       operation.signal.throwIfAborted();
       setPrivateKey(prepared.privateKey);
       const sender = createWalletSender(client, provider, owner, (hash) => {
-        submitted = true;
+        submitted = true; submittedHash = hash;
         const publicRecord = { ...prepared.record, transactionHash: hash };
         // Retain public revocation information even if the page was left while
         // the wallet prompt was open. Never persist prepared.privateKey.
@@ -107,7 +108,9 @@ export function useSessionKey(client: MinerClient | null, owner: string, provide
       const block = await client.web3.eth.getBlockNumber();
       assertSession(prepared.record, status, BigInt(prepared.record.chainId), block + BigInt(1));
     } catch (cause) {
-      if (contextRef.current === context && !operation.signal.aborted) {
+      if (cause instanceof SubmittedTransactionError) setError(cause.message);
+      else if (submittedHash && contextRef.current !== context) setError(`Authorization ${submittedHash} was submitted for ${owner}. Reconnect to load its public revocation record.`);
+      else if (contextRef.current === context && !operation.signal.aborted) {
         if (!submitted) setPrivateKey(null);
         setError(cause instanceof Error ? cause.message : "Session authorization failed");
       }
@@ -129,7 +132,7 @@ export function useSessionKey(client: MinerClient | null, owner: string, provide
       removeSession(record);
       setRecord(null); setPrivateKey(null); setView(null);
     } catch (cause) {
-      if (!operation.signal.aborted) setError(cause instanceof Error ? cause.message : "Session revocation failed");
+      if (!operation.signal.aborted || cause instanceof SubmittedTransactionError) setError(cause instanceof Error ? cause.message : "Session revocation failed");
     } finally {
       if (operationRef.current === operation) { operationRef.current = null; setBusy(null); }
     }

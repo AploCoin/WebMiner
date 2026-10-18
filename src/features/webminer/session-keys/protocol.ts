@@ -126,10 +126,14 @@ export function createSessionSender(client: MinerClient, record: SessionRecord, 
     }
     signal?.throwIfAborted();
     // Check before estimateGas as well: stale/revoked sessions must fail closed.
-    const [status, block, chainId] = await Promise.all([
-      readSession(client, record.address, record.owner), client.web3.eth.getBlockNumber(), client.web3.eth.getChainId(),
+    const [status, block, chainId, gasPrice] = await Promise.all([
+      readSession(client, record.address, record.owner), client.web3.eth.getBlockNumber(), client.web3.eth.getChainId(), client.web3.eth.getGasPrice(),
     ]);
     assertSession(record, status, chainId, block + BigInt(1));
+    // Even an empty transaction needs intrinsic gas. Reject an obviously too
+    // small budget before estimateGas can turn a native allowance error into a
+    // generic contract revert. The full gas limit is checked again before signing.
+    if (BigInt(21000) * gasPrice > status.gaplo) throw new Error("Session gas budget cannot cover this transaction's maximum fee");
     return send(to, data, signal);
   };
 }

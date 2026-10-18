@@ -38,7 +38,7 @@ async function installWallet(page: Page, reject = false) {
   }, { address, txHash, reject });
 }
 
-async function installRpc(page: Page, initialStake = "1000", difficulty = (BigInt(2) ** BigInt(256) - BigInt(1)).toString()) {
+async function installRpc(page: Page, initialStake = "1000", difficulty = (BigInt(2) ** BigInt(256) - BigInt(1)).toString(), holdReceipts = false) {
   let mined = false;
   let staked = initialStake;
   let session: { address: string; budget: string; expiry: string } | null = null;
@@ -87,6 +87,7 @@ async function installRpc(page: Page, initialStake = "1000", difficulty = (BigIn
         }
         case "eth_sendRawTransaction": rawTransactions.push(String(request.params[0])); result = txHash; break;
         case "eth_getTransactionReceipt": {
+          if (holdReceipts) { result = null; break; }
           if (walletData && walletData !== processedData) {
             processedData = walletData;
             if (walletData.startsWith(createSelector)) {
@@ -105,7 +106,7 @@ async function installRpc(page: Page, initialStake = "1000", difficulty = (BigIn
     };
     await route.fulfill({ json: Array.isArray(body) ? body.map(respond) : respond(body) });
   });
-  return { rawTransactions, miningReads, get session() { return session; } };
+  return { rawTransactions, miningReads, releaseReceipts: () => { holdReceipts = false; }, get session() { return session; } };
 }
 
 async function authorizeMining(page: Page) {
@@ -240,4 +241,26 @@ test("unsupported native registry blocks authorization without a direct-wallet m
   await expect(page.getByRole("button", { name: "Start Mining", exact: true })).toBeDisabled();
   expect(rpc.rawTransactions).toHaveLength(0);
   expect(await page.evaluate(() => (window as unknown as { walletRequests: { method: string }[] }).walletRequests.filter((r) => r.method === "eth_sendTransaction").length)).toBe(0);
+});
+
+
+test("pending authorization stays locked after wallet change and preserves only revocation metadata", async ({ page }) => {
+  await installWallet(page);
+  const rpc = await installRpc(page, "1000", "1", true);
+  await page.goto("/mining");
+  await page.getByRole("button", { name: "Connect Wallet", exact: true }).click();
+  await page.getByRole("button", { name: "Authorize Mining", exact: true }).click();
+  await expect.poll(async () => ownerSubmissions.get(page)!.length).toBe(1);
+  await page.evaluate(() => (window as unknown as { emitWalletChange: (event: string) => void }).emitWalletChange("accountsChanged"));
+  await expect(page.getByRole("button", { name: "Authorizing...", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Connect Wallet", exact: true })).toBeDisabled();
+  rpc.releaseReceipts();
+  await expect(page.getByRole("button", { name: "Connect Wallet", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Connect Wallet", exact: true }).click();
+  await expect(page.getByText(/private session key is unavailable/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start Mining", exact: true })).toBeDisabled();
+  expect(ownerSubmissions.get(page)).toHaveLength(1);
+  expect(rpc.rawTransactions).toHaveLength(0);
+  await page.getByRole("button", { name: "Revoke Mining Access", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Authorize Mining", exact: true })).toBeVisible();
 });
