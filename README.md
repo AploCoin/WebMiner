@@ -90,7 +90,7 @@ The navigation/current screenshots were refreshed for native session keys; legac
 
 ## RPC node configuration
 
-All workflow pages reuse the saved RPC selection:
+Current and legacy mining reuse the saved RPC selection; staking uses the wallet provider:
 
 | Option | URL |
 | --- | --- |
