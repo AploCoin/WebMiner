@@ -26,7 +26,8 @@ test("native AploNode: wallet-shaped balanceOf without from", async ({ request }
       }
     }
   }
-  const evidence = JSON.stringify({ rpc: rpcUrl, expectedBroken: process.env.APLO_EXPECT_CALL_REVERT === "1", adapter: false, rows }, null, 2);
+  const evidence = JSON.stringify({ source: process.env.APLO_NODE_REVISION, binary: process.env.APLO_NODE_BINARY, nodeBinarySha256: process.env.APLO_NODE_BINARY_SHA256,
+    frontendRevision: process.env.APLO_FRONTEND_REVISION, rpc: rpcUrl, expectedBroken: process.env.APLO_EXPECT_CALL_REVERT === "1", adapter: false, rows }, null, 2);
   await testInfo.attach("wallet-balance-rpc-matrix", { body: evidence, contentType: "application/json" });
   if (process.env.SAVE_NATIVE_EVIDENCE === "1") await writeFile("docs/verification/native-balance-rpc.json", evidence + "\n");
 });

@@ -16,8 +16,9 @@ test("native AploNode: owner registration, session-signed mining, and revocation
   const client = createMinerClient(rpcUrl!);
   const owner = (await web3.eth.getAccounts())[0];
   const initialStake = BigInt(await web3.eth.call({ from: owner, to: "0x0000000000000000000000000000000000001235", data: web3.eth.abi.encodeFunctionCall({ type: "function", name: "getStake", inputs: [{ name: "account", type: "address" }] }, [owner]) }));
+  expect(initialStake).toBe(BigInt(0)); // This lifecycle requires a fresh isolated devnet.
   const balanceData = (address: string) => web3.eth.abi.encodeFunctionCall({ type: "function", name: "balanceOf", inputs: [{ name: "account", type: "address" }] }, [address]);
-  const balanceAt = async (address: string, block: bigint | string = "latest") => BigInt(await web3.eth.call({ to: CONTRACT_ADDRESS, data: balanceData(address) }, block));
+  const balanceAt = async (address: string, block: bigint | string = "latest", to = CONTRACT_ADDRESS) => BigInt(await web3.eth.call({ to, data: balanceData(address) }, block));
   await page.addInitScript(({ owner, rpcUrl }) => {
     const requests: string[] = [];
     const transactions: string[] = [];
@@ -76,8 +77,19 @@ test("native AploNode: owner registration, session-signed mining, and revocation
   const sessionBefore = await balanceAt(publicRecord.address, minedBlock - BigInt(1));
   const sessionAfter = await balanceAt(publicRecord.address, minedBlock);
   // Compare exact share block to avoid counting subsequent browser shares.
-  expect(ownerAfter + fee).toBeGreaterThan(ownerBefore);
+  const block = await web3.eth.getBlock(minedBlock);
+  const gasPrice = BigInt(transaction.gasPrice!);
+  const basePrice = block.baseFeePerGas === undefined ? gasPrice : BigInt(block.baseFeePerGas);
+  const baseFeeBurn = receipt.gasUsed * (basePrice < gasPrice ? basePrice : gasPrice);
+  // --dev's owner is the sealing beneficiary: its tip returns to the owner.
+  // The native mining refund uses integer division first, then the 1000 APLO tier (11/10).
+  const expectedMiningReward = (baseFeeBurn / BigInt(66)) * BigInt(11) / BigInt(10);
+  expect(expectedMiningReward).toBeGreaterThan(BigInt(0));
+  expect(ownerAfter - ownerBefore).toBe(expectedMiningReward - baseFeeBurn);
   expect(sessionAfter).toBe(sessionBefore);
+  expect(await web3.eth.getBalance(owner, minedBlock)).toBe(ownerAfter);
+  const sessionAplo = await balanceAt(publicRecord.address, minedBlock, "0x0000000000000000000000000000000000001235");
+  expect(sessionAplo).toBe(BigInt(0));
   expect((await client.getStakeStatus(owner)).stakedWei).toBe(MIN_STAKE_WEI);
   expect(await web3.eth.getBalance(publicRecord.address)).toBe(BigInt(0));
   if (process.env.CAPTURE_SCREENSHOTS === "1") await page.screenshot({ path: "docs/screenshots/session-mining-desktop.png", fullPage: true, animations: "disabled" });
@@ -94,11 +106,13 @@ test("native AploNode: owner registration, session-signed mining, and revocation
   expect(publicStorage).not.toMatch(/privateKey/);
   expect(await page.getByLabel("Private Key", { exact: true }).count()).toBe(0);
   const evidence = JSON.stringify({
-    source: process.env.APLO_NODE_REVISION || "see APLO_NODE_BINARY and node-fix-status.json", binary: process.env.APLO_NODE_BINARY, rpc: rpcUrl,
+    source: process.env.APLO_NODE_REVISION || "not supplied", binary: process.env.APLO_NODE_BINARY, nodeBinarySha256: process.env.APLO_NODE_BINARY_SHA256,
+    frontendRevision: process.env.APLO_FRONTEND_REVISION, rpc: rpcUrl,
     wallet: "synthetic EIP-1193 adapter forwarding only owner signing to the unlocked localhost faucet; no real extension",
     initialStakeWei: initialStake.toString(), finalStakeWei: MIN_STAKE_WEI.toString(),
     feeWei: fee.toString(), budgetBeforeWei: budgetBefore.toString(), budgetAfterWei: budgetAfter.toString(),
-    rewardWei: (ownerAfter + fee - ownerBefore).toString(), ownerBeforeWei: ownerBefore.toString(), ownerAfterWei: ownerAfter.toString(), sessionBeforeWei: sessionBefore.toString(), sessionAfterWei: sessionAfter.toString(),
+    rewardWei: expectedMiningReward.toString(), baseFeeBurnWei: baseFeeBurn.toString(), returnedTipWei: (fee - baseFeeBurn).toString(), sessionAploWei: sessionAplo.toString(),
+    gasAsset: "GAPLO", valueAndStakeAsset: "APLO", ownerBeforeWei: ownerBefore.toString(), ownerAfterWei: ownerAfter.toString(), sessionBeforeWei: sessionBefore.toString(), sessionAfterWei: sessionAfter.toString(),
     chainId: (await web3.eth.getChainId()).toString(), owner, session: publicRecord.address,
     registrationHash: publicRecord.transactionHash, registrationOwner: registration.from,
     miningHash: hash, miningStatus: receipt.status.toString(), signer: transaction.from,
@@ -140,7 +154,8 @@ test("native AploNode: expired, revoked and insufficient-budget sessions fail cl
   await expect(createSessionSender(client, tiny.record, tiny.privateKey)(CONTRACT_ADDRESS, data)).rejects.toThrow(/budget|allowance|gas/i);
   expect(await web3.eth.getTransactionCount(tiny.record.address, "pending")).toBe(BigInt(0));
   await registryFor(client).methods.RevokeSessionKey(tiny.record.address).send({ from: owner, gas: "1000000", gasPrice: (await web3.eth.getGasPrice()).toString(), type: "0x0" });
-  const evidence = JSON.stringify({ rpc: rpcUrl, expired: expired.record.address, revoked: revoked.record.address, insufficientBudget: tiny.record.address,
+  const evidence = JSON.stringify({ source: process.env.APLO_NODE_REVISION, binary: process.env.APLO_NODE_BINARY, nodeBinarySha256: process.env.APLO_NODE_BINARY_SHA256,
+    frontendRevision: process.env.APLO_FRONTEND_REVISION, rpc: rpcUrl, expired: expired.record.address, revoked: revoked.record.address, insufficientBudget: tiny.record.address,
     rejectedSessionPendingNonces: ["0", "0", "0"], signing: "real local session keys with protocol guards", owner: "unlocked synthetic dev faucet" }, null, 2);
   await testInfo.attach("native-negative-session-checks", { body: evidence, contentType: "application/json" });
   if (process.env.SAVE_NATIVE_EVIDENCE === "1") await writeFile("docs/verification/native-session-negative.json", evidence + "\n");
