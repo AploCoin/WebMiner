@@ -98,7 +98,7 @@ All workflow pages reuse the saved RPC selection:
 | Pub2 | `https://pub2.aplocoin.com` |
 | Custom RPC URL | A valid `http://` or `https://` endpoint |
 
-The active endpoint appears under **Current RPC**. An invalid custom URL disables transaction controls instead of silently using the previous node. Node controls are locked during an active mining or staking operation. Wallet transactions require the wallet network to match the selected RPC node.
+The active endpoint appears under **Current RPC**. An invalid custom URL disables transaction controls instead of silently using the previous node. Mining node controls are locked during an active mining operation. Wallet mining requires the wallet network to match the selected RPC node. Staking uses the wallet provider directly (see below).
 
 ## Development and verification
 
@@ -151,3 +151,26 @@ If the environment blocks Turbopack’s internal process/port, the supported alt
 - Ensure sufficient funds for transaction gas and at least 1,000 APLO stake.
 - Mining waits for the existing 20-block cooldown between shares.
 - If a transaction times out, check its hash on the selected chain before retrying.
+
+### Wallet-driven staking
+
+`/staking` connects directly to the injected EIP-1193 wallet. Its provider supplies
+stake/balance reads, transaction submission, and receipt polling; saved miner RPC
+settings do not affect this page. The active chain is checked at connection and
+before sending. AploCoin mainnet is chain 28282 (`0x6e7a`, from AploNode's mainnet
+configuration). On another chain, staking is disabled and **Switch to AploCoin**
+requests an explicit wallet switch. An unknown-chain response (4902) offers the
+configured AploCoin network through `wallet_addEthereumChain`, then requests the
+switch and verifies it. Rejection/unsupported methods require manual selection.
+Reconnect after switching, changing accounts, or disconnecting.
+
+Mining and legacy keep their RPC selection. The wallet miner checks that its RPC
+and wallet chains agree when connecting and sending. An account change cannot
+select a new signer implicitly. Submitted staking transactions retain their
+pending lock across context changes; a network/receipt error includes the
+submitted hash and asks the user to check the original network before retrying.
+Staking statistics do not request mining metadata.
+
+`e2e/staking-wallet.spec.ts` covers provider-only reads, wrong chains, explicit
+switch/add, wallet rejection, account/network/disconnect events, and pending
+receipts. These browser tests use an EIP-1193 harness, not a real wallet extension.

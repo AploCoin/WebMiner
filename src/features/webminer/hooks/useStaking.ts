@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { MIN_STAKE_APLO } from "../config";
 import type { SendTransaction } from "../types";
 import type { MinerClient } from "../services/client";
+import { SubmittedTransactionError } from "../services/transactions";
 import { stakeAplo, unstakeAplo } from "../services/staking";
 
 export function useStaking(client: MinerClient | null, send: SendTransaction | null, refresh: () => Promise<void>) {
@@ -13,8 +14,7 @@ export function useStaking(client: MinerClient | null, send: SendTransaction | n
   const [pendingAction, setPendingAction] = useState<"stake" | "unstake" | null>(null);
   const pending = useRef<AbortController | null>(null);
   useEffect(() => {
-    setPendingAction(null);
-    return () => { pending.current?.abort(); pending.current = null; };
+    return () => { pending.current?.abort(); };
   }, [client, send]);
 
   const submit = async (action: "stake" | "unstake") => {
@@ -29,7 +29,7 @@ export function useStaking(client: MinerClient | null, send: SendTransaction | n
       await refresh();
       toast({ title: action === "stake" ? "Stake confirmed" : "Unstake confirmed" });
     } catch (error) {
-      if (!operation.signal.aborted) toast({ variant: "destructive", title: "Staking Error", description: error instanceof Error ? error.message : "Transaction failed" });
+      if (!operation.signal.aborted || error instanceof SubmittedTransactionError) toast({ variant: "destructive", title: "Staking Error", description: error instanceof Error ? error.message : "Transaction failed" });
     } finally {
       if (pending.current === operation) { pending.current = null; setPendingAction(null); }
     }

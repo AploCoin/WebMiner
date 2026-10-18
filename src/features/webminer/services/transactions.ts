@@ -1,5 +1,6 @@
 import type { EthereumProvider, SendTransaction, TransactionReceipt } from "../types";
 import type { MinerClient } from "./client";
+import { walletChainId } from "./wallet-network";
 import { formatPrivateKey, withTimeout } from "../utils";
 
 export function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
@@ -39,14 +40,13 @@ interface WalletTransactionOptions<T extends TransactionReceipt> {
 
 export async function submitWalletTransaction<T extends TransactionReceipt>({
   provider, from, to, data, waitForReceipt, signal,
-  delay: wait = delay, pollIntervalMs = 1000, timeoutMs = 120000,
-  onSubmitted,
+  delay: wait = delay, pollIntervalMs = 1000, timeoutMs = 120000, onSubmitted,
 }: WalletTransactionOptions<T>): Promise<T> {
   signal?.throwIfAborted();
   const hash = await provider.request({ method: "eth_sendTransaction", params: [{ from, to, data }] });
   if (typeof hash !== "string" || !hash) throw new Error("Wallet did not return a transaction hash");
-  onSubmitted?.(hash);
 
+  onSubmitted?.(hash);
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     // Submission cannot be undone. Finish observing its receipt even if mining
@@ -58,20 +58,50 @@ export async function submitWalletTransaction<T extends TransactionReceipt>({
   throw new Error(`Timed out waiting for transaction ${hash}. Check its status before trying again.`);
 }
 
-export function createWalletSender(client: MinerClient, provider: EthereumProvider, address: string, onSubmitted?: (hash: string) => void): SendTransaction {
+export class SubmittedTransactionError extends Error {
+  constructor(cause: unknown, hash: string) {
+    super(`${cause instanceof Error ? cause.message : "Confirmation failed"}. Transaction ${hash} was submitted; check it on the original network before retrying.`);
+  }
+}
+
+export function createWalletSender(client: MinerClient, provider: EthereumProvider, address: string, onSubmitted?: (hash: string) => void, expectedChain?: string): SendTransaction {
   return async (to, data, signal) => {
-    const [walletChain, rpcChain] = await Promise.all([
-      provider.request({ method: "eth_chainId" }),
-      withTimeout(client.web3.eth.getChainId(), 15000, "Chain ID RPC"),
-    ]);
-    if (typeof walletChain !== "string" || BigInt(walletChain) !== rpcChain) {
-      throw new Error("Wallet network does not match the selected RPC node. Switch the wallet network before continuing.");
+    let contextChanged = false;
+    let chainChanged = false;
+    let submittedHash = "";
+    const changedAccount = () => { contextChanged = true; };
+    const changedChain = () => { contextChanged = true; chainChanged = true; };
+    provider.on?.("accountsChanged", changedAccount);
+    provider.on?.("chainChanged", changedChain);
+    provider.on?.("disconnect", changedChain);
+    try {
+      const [walletChain, rpcChain, accounts] = await Promise.all([
+        walletChainId(provider),
+        withTimeout(client.web3.eth.getChainId(), 15000, "Chain ID RPC"),
+        provider.request({ method: "eth_accounts" }),
+      ]);
+      if ((expectedChain && BigInt(walletChain) !== BigInt(expectedChain)) || BigInt(walletChain) !== rpcChain) throw new Error("Wallet network does not match the selected RPC node. Switch the wallet network before continuing.");
+      if (!Array.isArray(accounts) || typeof accounts[0] !== "string" || accounts[0].toLowerCase() !== address.toLowerCase()) throw new Error("Wallet account changed. Reconnect before continuing.");
+      if (contextChanged) throw new Error("Wallet changed before submission. Reconnect before continuing.");
+      signal?.throwIfAborted();
+      return await submitWalletTransaction({
+        provider, from: address, to, data, signal,
+        onSubmitted: (hash) => { submittedHash = hash; onSubmitted?.(hash); },
+        waitForReceipt: async (hash) => {
+          if (chainChanged || await walletChainId(provider) !== walletChain) throw new Error("Wallet network changed during confirmation");
+          const receipt = await client.getTransactionReceipt(hash);
+          if (chainChanged) throw new Error("Wallet network changed during confirmation");
+          return receipt;
+        },
+      });
+    } catch (cause) {
+      if (submittedHash) throw new SubmittedTransactionError(cause, submittedHash);
+      throw cause;
+    } finally {
+      provider.removeListener?.("accountsChanged", changedAccount);
+      provider.removeListener?.("chainChanged", changedChain);
+      provider.removeListener?.("disconnect", changedChain);
     }
-    signal?.throwIfAborted();
-    return submitWalletTransaction({
-      provider, from: address, to, data, signal, onSubmitted,
-      waitForReceipt: (hash) => client.getTransactionReceipt(hash),
-    });
   };
 }
 

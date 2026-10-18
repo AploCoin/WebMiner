@@ -1,3 +1,10 @@
+// AploNode params.MainnetChainConfig. Wallet switching is always user initiated.
+export const APLO_CHAIN = {
+  chainId: "0x6e7a", chainName: "AploCoin",
+  nativeCurrency: { name: "APLO", symbol: "APLO", decimals: 18 },
+  rpcUrls: ["https://pub1.aplocoin.com", "https://pub2.aplocoin.com"],
+};
+
 export const PRESET_RPC_NODES = [
   { label: "Pub1", url: "https://pub1.aplocoin.com" },
   { label: "Pub2", url: "https://pub2.aplocoin.com" },
