@@ -2,134 +2,176 @@
 
 Browser-based GAplo/APLO miner built with Next.js, TypeScript, Web3.js and Tailwind CSS.
 
-## Features
+## Pages
 
-- Browser mining with locally signed transactions.
-- APLO staking controls and staking status/multiplier display.
-- RPC node selector: Pub1, Pub2, or a user-defined custom HTTP/HTTPS RPC URL.
-- Selected RPC settings are saved in the browser and reused on the next visit.
-- Mining stops automatically before switching RPC nodes so Web3 and contract instances are recreated cleanly.
-- Live balance, difficulty, total mined, stake and mined-share log UI.
-- Light/dark theme switcher.
+| Route | Workflow |
+| --- | --- |
+| `/` | Navigation to wallet mining, legacy mining, and APLO staking. No wallet connection or mining process is started here. |
+| `/mining` | Connect an EIP-1193 wallet and confirm each ready mining share in the wallet. |
+| `/legacy` | Manually enter a dedicated mining wallet’s private key and sign mining transactions locally. |
+| `/staking` | Connect a wallet, stake or unstake APLO, and review mining eligibility and reward rules. |
+
+Mining requires at least **1,000 APLO** staked. Starting either miner preserves the existing behavior of staking the missing amount first and waiting for confirmation. Stake can also be managed separately on `/staking`.
+
+There is no delegation or session-key flow. Wallet transactions use `eth_sendTransaction`; legacy transactions use local signing and `eth_sendRawTransaction`.
+
+## Code structure
+
+```text
+src/app/                         Route entry points and navigation home
+src/features/webminer/
+  pages/
+    CurrentMiner.tsx             Wallet mining page composition
+    LegacyMiner.tsx              Private-key mining page composition
+    Staking.tsx                  Staking page composition
+  components/                    Shared presentation and input controls
+  hooks/
+    useRpcNode.ts                Saved RPC selection and client lifecycle
+    useWalletConnection.ts       Wallet connection and account/network changes
+    useLegacyWallet.ts           In-memory private key and derived address
+    useAccountStats.ts           Balance, mining parameters, and stake polling
+    useMining.ts                 Shared start/stop lifecycle and share logs
+    useStaking.ts                Stake/unstake actions and confirmation state
+  services/
+    client.ts                    Contract instances and typed RPC reads
+    mining.ts                    Shared worker orchestration and mining loop
+    staking.ts                   Stake/unstake transactions and minimum stake
+    transactions.ts              Wallet/local signing and receipt confirmation
+src/workers/miningWorker.ts      Shared proof-of-work computation
+```
+
+Current and legacy miners are separate components. Both use the same mining hook, loop, worker, and staking services; each supplies its own transaction signer. `PageFrame` contains only shared layout and navigation.
+
+Stopping mining or leaving the page terminates worker computation and prevents subsequent submissions. A transaction already submitted cannot be cancelled: its receipt is observed before the same page allows another start. Wallet rejection or an RPC/transaction error stops the mining session without automatically requesting another transaction. Account or network changes disconnect the current wallet and cancel its active session.
 
 ## Screenshots
 
-### Main interface
+Captured from the production static export in Chromium, with an empty key and no connected wallet. These are interface screenshots, not evidence of live-chain mining. Desktop viewport: 1440 × 1080; mobile viewport: 390 × 844, full-page captures.
 
-![Main interface](docs/screenshots/main-interface.png)
+### Navigation home
 
-### Custom RPC node selection
+![Navigation home](docs/screenshots/home-desktop.png)
 
-![Custom RPC selection](docs/screenshots/rpc-selection.png)
+### Current wallet miner
 
-### Dark mode
+![Current wallet miner](docs/screenshots/current-miner-desktop.png)
 
-![Dark mode](docs/screenshots/dark-mode.png)
+### Legacy private-key miner
+
+![Legacy private-key miner](docs/screenshots/legacy-miner-desktop.png)
+
+### APLO staking
+
+![APLO staking](docs/screenshots/staking-desktop.png)
+
+<details>
+<summary>Mobile pages and dark theme</summary>
+
+![Mobile home](docs/screenshots/home-mobile.png)
+![Mobile current miner](docs/screenshots/current-miner-mobile.png)
+![Mobile legacy miner](docs/screenshots/legacy-miner-mobile.png)
+![Mobile staking](docs/screenshots/staking-mobile.png)
+![Dark legacy miner](docs/screenshots/legacy-dark-desktop.png)
+![Mobile dark legacy miner](docs/screenshots/legacy-dark-mobile.png)
+
+</details>
 
 ## RPC node configuration
 
-The app no longer uses a single hardcoded RPC endpoint. In the **RPC Node** panel you can choose:
+Current and legacy mining reuse the saved RPC selection; staking uses the wallet provider:
 
 | Option | URL |
 | --- | --- |
 | Pub1 | `https://pub1.aplocoin.com` |
 | Pub2 | `https://pub2.aplocoin.com` |
-| Custom RPC URL | Any valid `http://` or `https://` RPC endpoint |
+| Custom RPC URL | A valid `http://` or `https://` endpoint |
 
-When a custom URL is selected, enter the node URL in the input field. The active endpoint is shown under **Current RPC**.
+The active endpoint appears under **Current RPC**. An invalid custom URL disables transaction controls instead of silently using the previous node. Mining node controls are locked during an active mining operation. Wallet mining requires the wallet network to match the selected RPC node. Staking uses the wallet provider directly (see below).
 
-## Requirements
+## Development and verification
 
-- Node.js 20+
-- npm
-- A valid Aplo private key
-- APLO/GAPLO balance for staking and gas
-- At least `1000 APLO` staked before mining starts
-
-## Local development
+The app requires Node.js 20+. The existing jsdom test dependency requires a supported Node.js 22.22.2+, 24.15+, or 26+ release.
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-Open http://localhost:3000.
-
-## Static production build
-
-This project is configured with `output: 'export'`, so `npm run build` creates static files in `out/`.
+Open [localhost:3000](http://localhost:3000).
 
 ```bash
-npm install
+npm run typecheck
+npm run lint
+npm test
 npm run build
-npx serve -s out -l 3000
+npx playwright install chromium
+npm run test:e2e
 ```
 
-Open http://localhost:3000.
+The build uses Next.js static export and writes `out/`. Browser tests serve this production output with `scripts/serve-export.mjs`, so build before running them. Mining/staking browser tests use a synthetic test account and intercepted RPC/wallet responses; they compute shares with the actual Web Worker and exercise wallet and local transaction signing without sending live transactions.
 
-## Docker
-
-### Docker Compose
+To refresh screenshots after building:
 
 ```bash
-docker compose up --build -d
+CAPTURE_SCREENSHOTS=1 npm run test:e2e
 ```
 
-Open http://localhost:3000.
-
-Stop it with:
-
-```bash
-docker compose down
-```
-
-### Docker CLI
-
-```bash
-docker build -t aplo-webminer .
-docker run -d --name aplo-webminer -p 3000:3000 aplo-webminer
-```
-
-Stop/remove:
-
-```bash
-docker stop aplo-webminer
-docker rm aplo-webminer
-```
-
-## Usage
-
-1. Select **Pub1**, **Pub2**, or **Custom RPC URL**.
-2. If using a custom node, enter a valid HTTP/HTTPS RPC endpoint.
-3. Enter a private key. The wallet address is derived automatically in the browser.
-4. Stake APLO if the wallet has less than the required minimum stake.
-5. Click **Start Mining**.
-6. Watch stats and mined shares in the log table.
+If the environment blocks Turbopack’s internal process/port, the supported alternative is `npm run build -- --webpack`.
 
 ## Security notes
 
-- The private key is used only in the browser for local signing.
-- Do not share your private key.
-- Prefer a dedicated mining wallet with limited funds.
-- Verify custom RPC URLs before using them.
+- The legacy private key stays in component memory. It is not saved in browser storage or sent to the RPC node.
+- Leaving the legacy page clears the key; use a dedicated mining wallet with limited funds.
+- Selected RPC settings and the theme are the only persisted preferences.
+- Both mining flows need sufficient balance for staking and gas.
 
 ## Contract addresses
 
-- Mining contract: `0x0000000000000000000000000000000000001234`
-- Staking contract: `0x0000000000000000000000000000000000001235`
+- Mining: `0x0000000000000000000000000000000000001234`
+- APLO staking: `0x0000000000000000000000000000000000001235`
 
 ## Troubleshooting
 
-### Mining does not start
+- Verify that the RPC node is reachable and matches the connected wallet’s network.
+- Legacy keys must be valid 64-character hex keys, with or without `0x`.
+- Ensure sufficient funds for transaction gas and at least 1,000 APLO stake.
+- Mining waits for the existing 20-block cooldown between shares.
+- If a transaction times out, check its hash on the selected chain before retrying.
 
-- Check that the selected RPC node is reachable.
-- Verify the private key format: 64 hex characters, with or without `0x`.
-- Make sure the wallet has enough GAPLO for gas.
-- Make sure at least `1000 APLO` is staked.
-- Wait for the 20-block cooldown between mining attempts.
+### Wallet-driven staking
 
-### Custom RPC is not applied
+`/staking` connects directly to the injected EIP-1193 wallet. Its provider supplies
+stake/balance reads, transaction submission, and receipt polling; saved miner RPC
+settings do not affect this page. The active chain is checked at connection and
+before sending. AploCoin mainnet is chain 28282 (`0x6e7a`, from AploNode's mainnet
+configuration). On another chain, staking is disabled and **Switch to AploCoin**
+requests an explicit wallet switch. An unknown-chain response (4902) offers the
+configured AploCoin network through `wallet_addEthereumChain`, then requests the
+switch and verifies it. Rejection/unsupported methods require manual selection.
+Reconnect after switching, changing accounts, or disconnecting.
 
-- The URL must start with `http://` or `https://`.
-- The current active endpoint is shown below the RPC selector.
-- If mining is running, changing nodes stops mining first and then recreates Web3 connections.
+Mining and legacy keep their RPC selection. The wallet miner checks that its RPC
+and wallet chains agree when connecting and sending. An account change cannot
+select a new signer implicitly. Submitted staking transactions retain their
+pending lock across context changes; a network/receipt error includes the
+submitted hash and asks the user to check the original network before retrying.
+Staking statistics do not request mining metadata.
+
+`e2e/staking-wallet.spec.ts` covers provider-only reads, wrong chains, explicit
+switch/add, wallet rejection, account/network/disconnect events, and pending
+receipts. These browser tests use an EIP-1193 harness, not a real wallet extension.
+
+### APLO and GAPLO wallet labels
+
+The wallet network metadata uses **GAPLO**, matching the historical official
+[network-add configuration](https://github.com/AploCoin/mainsite/blob/f1852edb8bc4983099ae50a0b6c193bc46e5bee2/src/components/navigation/DesktopNavigation.tsx#L28)
+and [two-asset description](https://github.com/AploCoin/mainsite/blob/f1852edb8bc4983099ae50a0b6c193bc46e5bee2/messages/en.json#L188).
+AploNode's `eth_getBalance` exposes GAPLO and transaction fees are paid in GAPLO.
+Transaction `value`, the APLO builtin at `0x1235`, and staking use APLO. This label
+correction changes no node balances, gas economics or transfer semantics.
+
+A generic wallet has only one `nativeCurrency` label. Its native-send form may
+therefore display GAPLO while submitting `value`, which transfers APLO on this
+network. Correct metadata does not establish universal native-send compatibility.
+Actual extension display/signing and native-send behavior require separate tests;
+EIP-1193 adapters and localhost native integration are not extension tests.

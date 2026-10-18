@@ -1,3 +1,11 @@
+// Chain ID: AploNode params.MainnetChainConfig. Wallet switching is user initiated.
+// eth_getBalance and gas use GAPLO; APLO remains transaction value/staking.
+export const APLO_CHAIN = {
+  chainId: "0x6e7a", chainName: "AploCoin",
+  nativeCurrency: { name: "GAPLO", symbol: "GAPLO", decimals: 18 },
+  rpcUrls: ["https://pub1.aplocoin.com", "https://pub2.aplocoin.com"],
+};
+
 export const PRESET_RPC_NODES = [
   { label: "Pub1", url: "https://pub1.aplocoin.com" },
   { label: "Pub2", url: "https://pub2.aplocoin.com" },
@@ -9,7 +17,7 @@ export const APLO_STAKING_ADDRESS = "0x0000000000000000000000000000000000001235"
 export const MIN_STAKE_APLO = "1000";
 export const MIN_STAKE_WEI = BigInt("1000000000000000000000");
 export const MAX_UINT256 = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
-export const EXECUTION_MODE_SINGLE_DEFAULT = `0x${"0".repeat(64)}`;
+
 
 export const APLO_STAKING_ABI = [
   {
@@ -40,21 +48,8 @@ export const APLO_STAKING_ABI = [
     stateMutability: "view",
     type: "function",
   },
-];
+] as const;
 
-export const ERC7715_DELEGATION_MANAGER_ABI = [
-  {
-    inputs: [
-      { internalType: "bytes[]", name: "_permissionContexts", type: "bytes[]" },
-      { internalType: "bytes32[]", name: "_modes", type: "bytes32[]" },
-      { internalType: "bytes[]", name: "_executionCallData", type: "bytes[]" },
-    ],
-    name: "redeemDelegations",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-];
 
 export const CONTRACT_ABI = [
   { inputs: [], stateMutability: "nonpayable", type: "constructor" },
@@ -276,7 +271,7 @@ export const CONTRACT_ABI = [
     stateMutability: "nonpayable",
     type: "function",
   },
-];
+] as const;
 
 export const DEFAULT_DIFFICULTY = BigInt(
   "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"

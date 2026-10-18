@@ -22,7 +22,7 @@ export function MinedSharesTable({ minedShares }: MinedSharesTableProps) {
       <CardHeader><CardTitle className="text-xl font-bold">Mined Shares (Logs)</CardTitle></CardHeader>
       <CardContent>
         {minedShares.length === 0 ? (
-          <p className="text-center text-gray-500">No shares mined yet</p>
+          <p className="text-center text-muted-foreground">No shares mined yet</p>
         ) : (
           <div className="rounded-md border">
             <Table>

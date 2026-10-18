@@ -22,7 +22,7 @@ export const getAddressFromPrivateKey = (privateKey: string): string => {
     // Создаем аккаунт из приватного ключа
     const account = new Web3().eth.accounts.privateKeyToAccount(formattedKey);
     return account.address;
-  } catch (error) {
+  } catch {
     return '';
   }
 };
