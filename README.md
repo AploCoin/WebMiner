@@ -53,7 +53,7 @@ Stopping mining or leaving the page terminates worker computation and prevents s
 
 ## Screenshots
 
-The navigation/current screenshots were refreshed for native session keys; legacy/staking screenshots are retained from the base refactor. The idle pages are captured from the production static export in Chromium with no connected wallet. Idle captures show the UI only; the two labeled native-devnet captures show the isolated chain verification. Desktop viewport: 1440 × 1080; mobile viewport: 390 × 844, full-page captures.
+The navigation/current screenshots were refreshed for native session keys; staking captures reflect wallet-provider reads and network selection; legacy captures are retained from the base refactor. The idle pages are captured from the production static export in Chromium with no connected wallet. Idle captures show the UI only; the two labeled native-devnet captures show the isolated chain verification. Desktop viewport: 1440 × 1080; mobile viewport: 390 × 844, full-page captures.
 
 ### Navigation home
 

@@ -25,7 +25,7 @@ for (const entry of pages) {
       await expect(page.getByRole("button", { name: "Connect Wallet" })).toBeVisible();
       await expect(page.getByLabel("Private Key")).toHaveCount(0);
     }
-    if (process.env.CAPTURE_SCREENSHOTS === "1" && ["/", "/mining"].includes(entry.route)) {
+    if (process.env.CAPTURE_SCREENSHOTS === "1" && ["/", "/mining", "/staking"].includes(entry.route)) {
       await page.screenshot({ path: `docs/screenshots/${entry.screenshot}-${testInfo.project.name}.png`, fullPage: true, animations: "disabled" });
     }
     for (const link of ["Home", "Miner", "Legacy", "Staking"]) {
