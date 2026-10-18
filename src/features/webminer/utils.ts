@@ -35,7 +35,7 @@ export const formatBalance = (balance: string): string => {
   if (absNum < 1000) return `${num.toFixed(2)} GAPLO`;
   
   const suffixes = ['', 'K', 'M', 'B', 'T'];
-  const suffixNum = Math.floor(Math.log10(absNum) / 3);
+  const suffixNum = Math.min(Math.floor(Math.log10(absNum) / 3), suffixes.length - 1);
   const shortValue = (num / Math.pow(1000, suffixNum));
   
   return `${shortValue.toFixed(2)}${suffixes[suffixNum]} GAPLO`;
