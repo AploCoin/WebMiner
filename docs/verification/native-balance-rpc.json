@@ -1,4 +1,8 @@
 {
+  "source": "3d411286bc0cc1dd10144e7849ef829b190af43c",
+  "binary": "/Users/artemkadev/Desktop/AploNode/build/bin/aplo-geth-consensus-3d411286b",
+  "nodeBinarySha256": "9b9c9d1ef736a17d6116bd040fbd3ec3a8b08a1fdee7f06ab702ea8d4b18ddd0",
+  "frontendRevision": "12e59409f91f032620aa87649d8d8706a9c1e9d6",
   "rpc": "http://127.0.0.1:18645",
   "expectedBroken": false,
   "adapter": false,

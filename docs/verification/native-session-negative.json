@@ -1,8 +1,12 @@
 {
+  "source": "3d411286bc0cc1dd10144e7849ef829b190af43c",
+  "binary": "/Users/artemkadev/Desktop/AploNode/build/bin/aplo-geth-consensus-3d411286b",
+  "nodeBinarySha256": "9b9c9d1ef736a17d6116bd040fbd3ec3a8b08a1fdee7f06ab702ea8d4b18ddd0",
+  "frontendRevision": "12e59409f91f032620aa87649d8d8706a9c1e9d6",
   "rpc": "http://127.0.0.1:18645",
-  "expired": "0xCA29E75e053ffAd05eac6bfe74bf96bc62148660",
-  "revoked": "0xF02D86283004A1F8A915AAFdB47D0A21A59c8178",
-  "insufficientBudget": "0x92f8a1E0468407B415F30aA495C86592048e82E8",
+  "expired": "0xC01D54EDA626a85fE63Dd5682F4063E5aB3C01dE",
+  "revoked": "0x364Ba8e4A488D66906DE55BEF0B79176CF299b46",
+  "insufficientBudget": "0xD4A646F357db3c52d7F3E5f2e66979c3f676FDA0",
   "rejectedSessionPendingNonces": [
     "0",
     "0",
