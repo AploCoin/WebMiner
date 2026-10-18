@@ -14,7 +14,10 @@ describe("wallet network", () => {
     const request = vi.fn().mockRejectedValueOnce({ code: 4902 }).mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(APLO_CHAIN.chainId);
     await switchToAplo({ request });
     expect(request.mock.calls.map(([call]) => call.method)).toEqual(["wallet_switchEthereumChain", "wallet_addEthereumChain", "wallet_switchEthereumChain", "eth_chainId"]);
-    expect(request.mock.calls[1][0].params).toEqual([APLO_CHAIN]);
+    expect(request.mock.calls[1][0].params).toEqual([expect.objectContaining({
+      chainId: "0x6e7a",
+      nativeCurrency: { name: "GAPLO", symbol: "GAPLO", decimals: 18 },
+    })]);
   });
   it.each([4001, -32601, -32002])("respects rejection/unsupported/pending code %s without adding or retrying", async (code) => {
     const request = vi.fn().mockRejectedValue({ code });
