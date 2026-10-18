@@ -26,3 +26,23 @@ it("accepts the initial accountsChanged emitted by wallet authorization, then in
   expect(result.current.walletAddress).toBe("");
   await expect(capturedSender("0x2", "0x")).rejects.toThrow("Wallet changed");
 });
+
+
+it("switches the connected provider even if another extension replaces window.ethereum", async () => {
+  let chain = "0x1";
+  const request = vi.fn(async ({ method }: { method: string }) => {
+    if (method === "eth_requestAccounts") return [address];
+    if (method === "eth_chainId") return chain;
+    if (method === "wallet_switchEthereumChain") { chain = "0x6e7a"; return null; }
+    throw new Error(`Unexpected ${method}`);
+  });
+  window.ethereum = { request };
+  const { result } = renderHook(() => useWalletConnection(null, true));
+  await act(async () => { await result.current.connectWallet(); });
+  expect(result.current.wrongNetwork).toBe(true);
+  const replacement = vi.fn();
+  window.ethereum = { request: replacement };
+  await act(async () => { await result.current.switchNetwork(); });
+  expect(request).toHaveBeenCalledWith({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x6e7a" }] });
+  expect(replacement).not.toHaveBeenCalled();
+});
