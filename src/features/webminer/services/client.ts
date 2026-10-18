@@ -1,10 +1,10 @@
-import Web3 from "web3";
+import Web3, { errors } from "web3";
 import { APLO_STAKING_ABI, APLO_STAKING_ADDRESS, CONTRACT_ABI, CONTRACT_ADDRESS, DEFAULT_DIFFICULTY, MIN_STAKE_WEI } from "../config";
-import type { MinerParams, StakeStatus } from "../types";
+import type { EthereumProvider, MinerParams, StakeStatus } from "../types";
 import { withTimeout } from "../utils";
 
-export function createMinerClient(rpcUrl: string) {
-  const web3 = new Web3(new Web3.providers.HttpProvider(rpcUrl));
+export function createMinerClient(provider: string | EthereumProvider) {
+  const web3 = new Web3(typeof provider === "string" ? new Web3.providers.HttpProvider(provider) : provider);
   const mining = new web3.eth.Contract(CONTRACT_ABI, CONTRACT_ADDRESS);
   const staking = new web3.eth.Contract(APLO_STAKING_ABI, APLO_STAKING_ADDRESS);
 
@@ -12,6 +12,13 @@ export function createMinerClient(rpcUrl: string) {
     web3,
     mining,
     staking,
+    async getTransactionReceipt(hash: string) {
+      try { return await web3.eth.getTransactionReceipt(hash); }
+      catch (cause) {
+        if (cause instanceof errors.TransactionNotFound) return null;
+        throw cause;
+      }
+    },
     async getMinerParams(address: string): Promise<MinerParams> {
       const params = await withTimeout(mining.methods.miner_params(address).call(), 15000, "miner_params RPC");
       const difficulty = BigInt(params.current_difficulty);

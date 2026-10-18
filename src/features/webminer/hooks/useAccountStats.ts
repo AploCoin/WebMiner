@@ -9,13 +9,13 @@ import { formatMiningDifficulty, withTimeout } from "../utils";
 const initialMinerStats: MinerStats = { difficulty: formatMiningDifficulty(DEFAULT_DIFFICULTY), totalMined: 0, balance: "0" };
 const initialStakeStats: StakeStatus = { stakedWei: BigInt(0), staked: "0", multiplier: 0, canMine: false };
 
-export function useAccountStats(client: MinerClient | null, address: string) {
+export function useAccountStats(client: MinerClient | null, address: string, includeMining = true) {
   const [snapshot, setSnapshot] = useState<{ client: MinerClient; address: string; minerStats: MinerStats; stakeStats: StakeStatus } | null>(null);
   const [error, setError] = useState("");
   const refresh = useCallback(async (isActive: () => boolean = () => true) => {
     if (!client || !address) return;
     const [params, balance, stakeStats] = await Promise.all([
-      client.getMinerParams(address),
+      includeMining ? client.getMinerParams(address) : Promise.resolve({ currentDifficulty: DEFAULT_DIFFICULTY, totalMined: 0 }),
       withTimeout(client.web3.eth.getBalance(address), 15000, "Balance RPC"),
       client.getStakeStatus(address),
     ]);
@@ -25,7 +25,7 @@ export function useAccountStats(client: MinerClient | null, address: string) {
       balance: client.web3.utils.fromWei(balance, "ether"),
     } });
     setError("");
-  }, [client, address]);
+  }, [client, address, includeMining]);
 
   useEffect(() => {
     let active = true;

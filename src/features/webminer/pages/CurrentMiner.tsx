@@ -21,6 +21,7 @@ export function CurrentMiner() {
       footer={<MinedSharesTable minedShares={mining.minedShares} />}>
       <RpcNodeSelector {...rpc} isMining={mining.isMining || mining.isStopping} onNodeChange={rpc.handleNodeChange} onCustomRpcChange={rpc.handleCustomRpcChange} />
       <ConnectedWalletPanel {...wallet} disabled={mining.isMining || mining.isStopping || !rpc.isRpcReady} onConnectWallet={wallet.connectWallet} />
+      {wallet.networkError && <p role="alert">{wallet.networkError}</p>}
       {stats.error && <p role="alert" className="text-sm text-destructive">{stats.error}</p>}
       <MinerStatsPanel minerStats={stats.minerStats} stakeStats={stats.stakeStats} />
       <MiningToggle {...mining} canStart={Boolean(wallet.sendTransaction)} onToggleMining={mining.toggleMining} />

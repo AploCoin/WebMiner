@@ -34,6 +34,7 @@ describe("separate pages", () => {
   it("shows staking controls without mounting mining controls", () => {
     render(<Staking />);
     expect(screen.getByText("Stake / Unstake APLO")).toBeInTheDocument();
+    expect(screen.queryByText("RPC Node")).not.toBeInTheDocument();
     expect(screen.getByText("Stake level → Mining reward rule")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start Mining" })).not.toBeInTheDocument();
     expect(screen.queryByText("Mined Shares (Logs)")).not.toBeInTheDocument();

@@ -41,10 +41,10 @@ describe("submitWalletTransaction", () => {
   });
 
   it("does not send a wallet transaction on the wrong network", async () => {
-    const provider = { request: vi.fn().mockResolvedValue("0x2") };
+    const provider = { request: vi.fn().mockImplementation(async ({ method }) => method === "eth_chainId" ? "0x2" : ["0x1"]) };
     const client = { web3: { eth: { getChainId: vi.fn().mockResolvedValue(BigInt(1)) } } } as unknown as MinerClient;
     await expect(createWalletSender(client, provider, "0x1")("0x2", "0x")).rejects.toThrow("Wallet network does not match");
-    expect(provider.request).toHaveBeenCalledTimes(1);
+    expect(provider.request).toHaveBeenCalledTimes(2);
     expect(provider.request).toHaveBeenCalledWith({ method: "eth_chainId" });
   });
 

@@ -46,7 +46,7 @@ test("custom RPC settings persist and invalid URLs cannot start mining", async (
   await page.reload();
   await expect(input).toHaveValue("http://127.0.0.1:8545");
   await page.getByRole("navigation").getByRole("link", { name: "Staking", exact: true }).click();
-  await expect(page.getByPlaceholder("https://your-rpc-node.com")).toHaveValue("http://127.0.0.1:8545");
+  await expect(page.getByPlaceholder("https://your-rpc-node.com")).toHaveCount(0);
 });
 
 test("dark theme applies without horizontal overflow", async ({ page }, testInfo) => {

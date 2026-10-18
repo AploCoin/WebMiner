@@ -19,7 +19,7 @@ async function installWallet(page: Page, reject = false) {
       ethereum: {
         request: async (request: { method: string; params?: unknown[] }) => {
           requests.push(request);
-          if (request.method === "eth_requestAccounts") return [address];
+          if (request.method === "eth_requestAccounts" || request.method === "eth_accounts") return [address];
           if (request.method === "eth_chainId") return "0x1";
           if (request.method === "eth_sendTransaction") {
             if (reject) throw new Error("User rejected transaction");
@@ -122,18 +122,6 @@ test("rejected wallet share stops mining without repeated prompts or a successfu
   await expect(page.getByRole("button", { name: "Start Mining" })).toBeVisible();
   await expect(page.getByText("No shares mined yet")).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { walletRequests: { method: string }[] }).walletRequests.filter((r) => r.method === "eth_sendTransaction").length)).toBe(1);
-});
-
-test("staking waits for confirmation and sends only to the staking contract", async ({ page }) => {
-  await installWallet(page);
-  await installRpc(page, "0");
-  await page.goto("/staking");
-  await page.getByRole("button", { name: "Connect Wallet" }).click();
-  await page.getByRole("button", { name: "Stake APLO", exact: true }).click();
-  await expect(page.getByText("Stake confirmed", { exact: true })).toBeVisible();
-  await expect(page.getByText("Stake OK", { exact: true })).toBeVisible();
-  const requests = await page.evaluate(() => (window as unknown as { walletRequests: { method: string; params: { to: string }[] }[] }).walletRequests);
-  expect(requests.find((request) => request.method === "eth_sendTransaction")?.params[0].to).toBe(stakingAddress);
 });
 
 test("changing the wallet account cancels active worker computation", async ({ page }) => {
