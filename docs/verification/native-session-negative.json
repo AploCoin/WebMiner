@@ -1,8 +1,8 @@
 {
   "rpc": "http://127.0.0.1:18645",
-  "expired": "0xE56Fa41Cf7880A2D31387E8277f1fcc19b2f9Ef6",
-  "revoked": "0x5e668570A56CE77C6c16352ef027d44A22e4AA78",
-  "insufficientBudget": "0xbD8DD7224C7876d5aFA8c664b8762a4d16e79eaC",
+  "expired": "0xCA29E75e053ffAd05eac6bfe74bf96bc62148660",
+  "revoked": "0xF02D86283004A1F8A915AAFdB47D0A21A59c8178",
+  "insufficientBudget": "0x92f8a1E0468407B415F30aA495C86592048e82E8",
   "rejectedSessionPendingNonces": [
     "0",
     "0",
